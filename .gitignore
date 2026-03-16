@@ -24,3 +24,6 @@ desktop.ini
 
 # VS Code
 .vscode/settings.json
+
+# LaTeX build output
+profile/build/

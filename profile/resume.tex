@@ -1,0 +1,198 @@
+\documentclass[letterpaper,11pt]{article}
+
+\usepackage{latexsym}
+\usepackage[empty]{fullpage}
+\usepackage{titlesec}
+\usepackage{marvosym}
+\usepackage[usenames,dvipsnames]{color}
+\usepackage{verbatim}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+\usepackage{fancyhdr}
+\usepackage[english]{babel}
+\usepackage{tabularx}
+\input{glyphtounicode}
+
+
+%----------FONT OPTIONS----------
+% sans-serif
+% \usepackage[sfdefault]{FiraSans}
+% \usepackage[sfdefault]{roboto}
+ \usepackage[sfdefault]{noto-sans}
+% \usepackage[default]{sourcesanspro}
+
+% serif
+% \usepackage{CormorantGaramond}
+% \usepackage{charter}
+
+
+\pagestyle{fancy}
+\fancyhf{} % clear all header and footer fields
+\fancyfoot{}
+\renewcommand{\headrulewidth}{0pt}
+\renewcommand{\footrulewidth}{0pt}
+
+% Adjust margins
+\addtolength{\oddsidemargin}{-0.5in}
+\addtolength{\evensidemargin}{-0.5in}
+\addtolength{\textwidth}{1in}
+\addtolength{\topmargin}{-.5in}
+\addtolength{\textheight}{1.0in}
+
+\urlstyle{same}
+
+\raggedbottom
+\raggedright
+\setlength{\tabcolsep}{0in}
+\setlength{\footskip}{4.35004pt}
+
+% Sections formatting
+\titleformat{\section}{
+  \vspace{-4pt}\scshape\raggedright\large
+}{}{0em}{}[\color{black}\titlerule \vspace{-5pt}]
+
+% Ensure that generate pdf is machine readable/ATS parsable
+\pdfgentounicode=1
+
+%-------------------------
+% Custom commands
+\newcommand{\resumeItem}[1]{
+  \item\small{
+    {#1 \vspace{-2pt}}
+  }
+}
+
+\newcommand{\resumeSubheading}[4]{
+  \vspace{-2pt}\item
+    \begin{tabular*}{0.97\textwidth}[t]{l@{\extracolsep{\fill}}r}
+      \textbf{#1} & #2 \\
+      \textit{\small#3} & \textit{\small #4} \\
+    \end{tabular*}\vspace{-7pt}
+}
+
+\newcommand{\resumeSubSubheading}[2]{
+    \item
+    \begin{tabular*}{0.97\textwidth}{l@{\extracolsep{\fill}}r}
+      \textit{\small#1} & \textit{\small #2} \\
+    \end{tabular*}\vspace{-7pt}
+}
+
+\newcommand{\resumeProjectHeading}[2]{
+    \item
+    \begin{tabular*}{0.97\textwidth}{l@{\extracolsep{\fill}}r}
+      \small#1 & #2 \\
+    \end{tabular*}\vspace{-7pt}
+}
+
+\newcommand{\resumeSubItem}[1]{\resumeItem{#1}\vspace{-4pt}}
+
+\renewcommand\labelitemii{$\vcenter{\hbox{\tiny$\bullet$}}$}
+
+\newcommand{\resumeSubHeadingListStart}{\begin{itemize}[leftmargin=0.15in, label={}]}
+\newcommand{\resumeSubHeadingListEnd}{\end{itemize}}
+\newcommand{\resumeItemListStart}{\begin{itemize}}
+\newcommand{\resumeItemListEnd}{\end{itemize}\vspace{-5pt}}
+
+%-------------------------------------------
+%%%%%%  RESUME STARTS HERE  %%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+\begin{document}
+
+%----------HEADING----------
+% \begin{tabular*}{\textwidth}{l@{\extracolsep{\fill}}r}
+%   \textbf{\href{http://sourabhbajaj.com/}{\Large Sourabh Bajaj}} & Email : \href{mailto:sourabh@sourabhbajaj.com}{sourabh@sourabhbajaj.com}\\
+%   \href{http://sourabhbajaj.com/}{http://www.sourabhbajaj.com} & Mobile : +1-123-456-7890 \\
+% \end{tabular*}
+
+\begin{center}
+    \textbf{\Huge \scshape Aidan Kuo} \\ \vspace{1pt}
+    \small (832) 206-5968 $|$ \href{mailto:x@x.com}{\underline{aidanlkuo@gmail.com}} $|$ 
+    \href{https://linkedin.com/in/aidan-kuo/}{\underline{linkedin.com/in/aidan-kuo/}} $|$
+    \href{https://github.com/aidankuo}{\underline{github.com/aidankuo}}
+\end{center}
+
+%-----------SUMMARY-----------
+\section{Summary}
+\resumeSubHeadingListStart
+  \item \small{Junior Data Analyst with a background in data analytics and Computer Science, experienced in analyzing data to support business intelligence and organizational decision-making. Skilled in data analysis, writing SQL queries, and building reports with tools like Power BI while translating Business Requirements into clear insights and improving data quality through enterprise reporting processes.}
+\resumeSubHeadingListEnd
+
+%-----------EDUCATION-----------
+\section{Education}
+  \resumeSubHeadingListStart
+    \resumeSubheading
+      {University of Washington}{Seattle, WA}
+      {B.A. in Geography: Data Science, Minor in Informatics}{June 2025}
+    \resumeItemListStart
+      \resumeItem{Relevant Coursework: Advanced Methods in Data Science, Computer Programming I, II, and III, Data Structures, Algorithms, Databases and Data Modeling}
+    \resumeItemListEnd
+  \resumeSubHeadingListEnd
+
+
+
+%-----------PROJECTS-----------
+\section{Projects}
+    \resumeSubHeadingListStart
+    \resumeProjectHeading
+          {\textbf{CSV Analyst Bot} $|$ \emph{Git, Python, Streamlit, OpenAI API, Pandas, Matplotlib, Seaborn}}{May 2025}
+          \resumeItemListStart
+            \resumeItem{Developed a Streamlit application enabling users to query and visualize CSV data using natural language}
+            \resumeItem{Automated data visualization with dynamic Python execution, reducing manual analysis time by over \textbf{80\%}}
+            \resumeItem{Integrated automated EDA, interactive charting, and NLP-driven insights using Pandas, Matplotlib, and Seaborn}
+          \resumeItemListEnd
+    \resumeProjectHeading
+          {\textbf{Seattle Restaurant Finder} $|$ \emph{YelpFusion API, Mapbox API, JavaScript, Python, CSS, Git, HTML, ArcGIS}}{March 2025}
+          \resumeItemListStart
+            \resumeItem{Integrated external APIs to retrieve restaurant data, yielding data-driven insights for proximity analysis}
+            \resumeItem{Refined spatial filtering techniques, enabling users to identify desired restaurants \textbf{25\%} faster}
+            \resumeItem{Deployed the application on GitHub Pages with version control, ensuring reliable availability and achieving \textbf{99\%} uptime with seamless updates}
+          \resumeItemListEnd
+        \resumeProjectHeading
+          {\textbf{AI Model Video Game Analysis} $|$ \emph{Python, MatplotLib}}{December 2024}
+          \resumeItemListStart
+            \resumeItem{Extracted, cleaned, and combined datasets with \textbf{10,000+} entries, enhancing data quality and reliability}
+            \resumeItem{Conducted analysis and produced \textbf{5+} visualizations, enhancing model development and decision-making}
+            \resumeItem{Built and optimized machine learning models using Python libraries such as scikit-learn, achieving \textbf{~98\%} accuracy in predicting key factors}
+          \resumeItemListEnd
+      \resumeProjectHeading
+          {\textbf{VetConnect Mobile App} $|$ \emph{Figma}}{Spring 2023}
+          \resumeItemListStart
+            \resumeItem{Engineered a mobile app connecting veterans, integrating data-driven features to enhance mental health}
+            \resumeItem{Designed \textbf{5+} user-friendly, intuitive interfaces in Figma, enhancing user engagement by \textbf{15\%}}
+            \resumeItem{Integrated front-end components to simulate real-time communication}
+          \resumeItemListEnd
+    \resumeSubHeadingListEnd
+
+
+
+%
+
+%-----------LeaderSHIP-----------
+\section{Leadership}
+    \resumeSubHeadingListStart
+      \resumeProjectHeading
+          {\textbf{DubHacks, University of Washington} $|$ \emph{Team Lead, Website developer}}{October 2023}
+          \resumeItemListStart
+            \resumeItem{Brainstormed and collaborated with teammates in problem solving and creating a pilot app and launching website for a mental health 
+based shared calendar called InSync}
+            \resumeItem{Conducted research on mental health trends practicing good communication skills to substantiate the project's importance and presented findings 
+during the hackathon}
+            \resumeItem{Coded and deployed the website using React and JavaScript, optimizing user experience and ensuring seamless 
+functionality across devices while paying attention to detail}
+          \resumeItemListEnd
+      \resumeSubHeadingListEnd
+%
+
+%-----------PROGRAMMING SKILLS-----------
+\section{Skills}
+\begin{itemize}[leftmargin=0.15in, label={}]
+    \small
+    \item \textbf{Languages}: Python, Java, HTML/CSS, JavaScript, R, SQL, C\#, C++, rust, lua
+    \item \textbf{Frameworks}: React, pandas, NumPy, Matplotlib, mysql, mongoDB, Tableau
+    \item \textbf{Developer Tools}: Git, VS Code, Jupyter Notebook, Figma, SVN, Power BI, Microsoft Office Suite, ArcGIS
+\end{itemize}
+
+
+%-------------------------------------------
+\end{document}
