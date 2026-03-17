@@ -1,0 +1,42 @@
+# Model configuration
+model:
+  provider: ollama
+  name: qwen3:8b
+  host: http://localhost:11434
+  temperature: 0.3
+  think_mode: false
+
+# Scraper configuration
+scraper:
+  sites:
+    - indeed
+    - linkedin
+  search_terms:
+    - data analyst
+    - junior data analyst
+    - business intelligence analyst
+    - python developer
+    - analytics engineer
+  locations:
+    - Houston, TX
+    - Seattle, WA        # your other target city
+  is_remote: true        # this filters for remote roles across all locations
+  hours_old: 72          # only jobs posted in the last 3 days
+  results_per_search: 25  # per site per search term
+
+# Scoring thresholds
+scoring:
+  auto_apply_threshold: 7
+  review_threshold: 5
+  max_applications_per_day: 5
+
+# Profile paths
+profile:
+  resume: profile/resume.tex
+  preferences: profile/preferences.md
+  cover_letter_style: profile/cover_letter_template.md
+
+# Data paths
+data:
+  applications_log: data/applications.json
+  seen_jobs: data/seen_jobs.json
