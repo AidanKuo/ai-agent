@@ -128,6 +128,45 @@ def generate_cover_letter(job: dict, resume: str, style_guide: str, cfg: dict) -
         return ""
 
 
+HUMANIZER_PROMPT = """You are an editor. A cover letter was written by an AI and needs to sound like it was written by a real person.
+
+ORIGINAL COVER LETTER:
+{letter}
+
+Rewrite it following these rules:
+- Keep every fact, achievement, and metric exactly as stated — do not invent or remove anything
+- Keep the same structure and length (250-350 words)
+- Remove any of these AI giveaways:
+  * Overly formal openers ("I am writing to express...")
+  * Hollow enthusiasm ("I am thrilled/excited/passionate...")
+  * Corporate filler ("leverage", "utilize", "synergy", "dynamic team")
+  * Perfectly balanced sentence rhythm — vary sentence length
+  * Lists of three adjectives ("dedicated, hardworking, and passionate")
+- Replace with natural human writing:
+  * Direct, confident tone — like a capable person talking to a peer
+  * Occasional sentence fragments are fine
+  * Contractions are fine (I've, I'm, that's)
+  * One sentence can be short. For emphasis.
+- Do not add new content, do not change the signature block
+- Output the rewritten cover letter only, nothing else"""
+
+
+def humanize_cover_letter(letter: str, cfg: dict) -> str:
+    """Run a second pass to strip AI writing patterns."""
+    model = cfg["model"]["name"]
+    prompt = HUMANIZER_PROMPT.format(letter=letter)
+    try:
+        response = ollama.chat(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            options={"temperature": 0.6},
+        )
+        return response["message"]["content"].strip()
+    except Exception as e:
+        log.error(f"Humanizer failed: {e} — using original")
+        return letter
+
+
 def save_cover_letter(job: dict, letter: str) -> Path:
     """Save cover letter as .txt file, return the path."""
     LETTERS_DIR.mkdir(parents=True, exist_ok=True)
@@ -298,6 +337,10 @@ def run_applicator(dry_run: bool = False) -> None:
         if not letter:
             log.warning(f"  Skipping — cover letter generation failed")
             continue
+
+        # Humanize the cover letter
+        log.info(f"  Humanizing cover letter...")
+        letter = humanize_cover_letter(letter, cfg)
 
         # Save cover letter to file
         letter_path = save_cover_letter(job, letter)
