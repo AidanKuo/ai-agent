@@ -139,6 +139,17 @@ def run_scraper() -> list[dict]:
                     linkedin_fetch_description=True,
                     is_remote=cfg.get("scraper", {}).get("is_remote", False),
                 )
+
+                # ── sanitize ──────────────────────────────────────────────────
+                str_cols = ["title", "company", "location", "description", 
+                            "job_url", "site", "date_posted"]
+                for col in str_cols:
+                    if col in df.columns:
+                        df[col] = df[col].fillna("").astype(str)
+
+                # drop rows with no title or company
+                df = df[df["title"].str.strip() != ""]
+
             except Exception as e:
                 log.error(f"Scrape failed for '{term}' in '{location}': {e}")
                 continue

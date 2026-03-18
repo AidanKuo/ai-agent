@@ -93,7 +93,7 @@ def _send_discord_summary(auto: int, review: int, skipped: int) -> None:
     import asyncio
     import discord
     from dotenv import load_dotenv
-    load_dotenv()
+    load_dotenv(Path(__file__).parent / ".env")
 
     token      = os.getenv("DISCORD_BOT_TOKEN")
     channel_id = int(os.getenv("DISCORD_CHANNEL_ID", "0"))

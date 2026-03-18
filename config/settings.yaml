@@ -18,16 +18,16 @@ scraper:
     - python developer
     - analytics engineer
   locations:
-    - Houston, TX
-    - Seattle, WA        # your other target city
-  is_remote: true        # this filters for remote roles across all locations
+    - United States
+    # - Seattle, WA        # your other target city
+  is_remote: false        # this filters for remote roles across all locations
   hours_old: 72          # only jobs posted in the last 3 days
   results_per_search: 25  # per site per search term
 
 # Scoring thresholds
 scoring:
-  auto_apply_threshold: 7
-  review_threshold: 5
+  auto_apply_threshold: 8
+  review_threshold: 6
   max_applications_per_day: 5
 
 # Profile paths

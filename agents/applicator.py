@@ -284,12 +284,15 @@ def print_application_pack(job: dict, letter: str, letter_path: Path, prefill: d
     print(f"  LinkedIn:   {prefill['linkedin_url']}")
     print(f"  GitHub:     {prefill['github_url']}")
     print(f"{'─'*60}")
-    print(f"COVER LETTER saved to:")
-    print(f"  {letter_path}")
-    print(f"{'─'*60}")
-    print(f"COVER LETTER PREVIEW:")
-    print()
-    print(letter)
+    if letter_path:
+        print(f"COVER LETTER saved to:")
+        print(f"  {letter_path}")
+        print(f"{'─'*60}")
+        print(f"COVER LETTER PREVIEW:")
+        print()
+        print(letter)
+    else:
+        print(f"COVER LETTER: not generated (run with --cover-letter to generate)")
     print(f"{'='*60}")
 
 
@@ -304,7 +307,7 @@ def open_job_url(url: str) -> None:
 
 # ── Core applicator ───────────────────────────────────────────────────────────
 
-def run_applicator(dry_run: bool = False) -> None:
+def run_applicator(dry_run: bool = False, cover_letter: bool = False) -> None:
     cfg        = load_config()
     resume     = load_resume_text()
     style      = load_cover_letter_template()
@@ -332,25 +335,25 @@ def run_applicator(dry_run: bool = False) -> None:
     for i, job in enumerate(queue):
         print(f"\n[{i+1}/{len(queue)}] {job['title']} @ {job['company']}")
 
-        # Generate cover letter
-        letter = generate_cover_letter(job, resume, style, cfg)
-        if not letter:
-            log.warning(f"  Skipping — cover letter generation failed")
-            continue
+        # Cover letter — only if requested
+        letter      = ""
+        letter_path = None
+        gap_report  = ""
 
-        # Humanize the cover letter
-        log.info(f"  Humanizing cover letter...")
-        letter = humanize_cover_letter(letter, cfg)
+        if cover_letter:
+            letter = generate_cover_letter(job, resume, style, cfg)
+            if letter:
+                log.info(f"  Humanizing cover letter...")
+                letter = humanize_cover_letter(letter, cfg)
+                letter_path = save_cover_letter(job, letter)
+                log.info(f"  Cover letter saved: {letter_path.name}")
+            else:
+                log.warning(f"  Cover letter generation failed — continuing without")
 
-        # Save cover letter to file
-        letter_path = save_cover_letter(job, letter)
-        log.info(f"  Cover letter saved: {letter_path.name}")
-
-        # Generate and print keyword gap report
-        log.info(f"  Running keyword gap analysis...")
-        gap_report = generate_keyword_gap(job, resume, cfg)
-        if gap_report:
-            print_keyword_gap(gap_report)
+            log.info(f"  Running keyword gap analysis...")
+            gap_report = generate_keyword_gap(job, resume, cfg)
+            if gap_report:
+                print_keyword_gap(gap_report)
 
         # Print the full application pack
         print_application_pack(job, letter, letter_path, prefill)
@@ -403,7 +406,10 @@ def run_applicator(dry_run: bool = False) -> None:
 
 if __name__ == "__main__":
     import sys
-    dry_run = "--dry-run" in sys.argv
+    dry_run      = "--dry-run" in sys.argv
+    cover_letter = "--cover-letter" in sys.argv
     if dry_run:
         print("Running in DRY RUN mode — no browser will open, no jobs marked as applied.")
-    run_applicator(dry_run=dry_run)
+    if cover_letter:
+        print("Cover letter mode ON — will generate and humanize a cover letter per job.")
+    run_applicator(dry_run=dry_run, cover_letter=cover_letter)
