@@ -375,6 +375,20 @@ if page == "Apply queue":
                         st.markdown(f"[Click here if not redirected]({url})")
 
                 # Cover letter toggle
+                # ATS scan button
+                ats_key = f"ats_result_{job_key}"
+                if ats_key not in st.session_state:
+                    st.session_state[ats_key] = None
+
+                if st.button("ATS scan", key=f"ats_{job_key}", use_container_width=True):
+                    with st.spinner("Scanning ATS match..."):
+                        try:
+                            sys.path.insert(0, str(BASE_DIR))
+                            from agents.ats_scanner import scan_job
+                            st.session_state[ats_key] = scan_job(job)
+                        except Exception as e:
+                            st.error(f"ATS scan failed: {e}")
+
                 cl_key = f"cl_generated_{job_key}"
                 if cl_key not in st.session_state:
                     st.session_state[cl_key] = None
@@ -386,8 +400,10 @@ if page == "Apply queue":
                             st.session_state[cl_key] = letter
                             LETTERS.mkdir(exist_ok=True)
                             import re
-                            fname = f"{datetime.now().strftime('%Y%m%d')}_{re.sub(r'[^\\w]','_',job.get('company','co'))[:30]}_{re.sub(r'[^\\w]','_',job.get('title','role'))[:30]}.txt"
-                            (LETTERS / fname).write_text(letter, encoding="utf-8")
+                            company_safe = re.sub(r'[^\w]', '_', job.get('company', 'co'))[:30]
+                            title_safe   = re.sub(r'[^\w]', '_', job.get('title', 'role'))[:30]
+                            name        = f"{datetime.now().strftime('%Y%m%d')}_{company_safe}_{title_safe}.txt"
+                            (LETTERS / name).write_text(letter, encoding="utf-8")
                         except Exception as e:
                             st.error(f"Generation failed: {e}")
 
@@ -409,6 +425,69 @@ if page == "Apply queue":
                     save_applications(apps)
                     st.rerun()
 
+        # Show ATS results if scanned
+        if st.session_state.get(ats_key):
+            ats = st.session_state[ats_key]
+            if "error" in ats:
+                st.error(f"ATS scan error: {ats['error']}")
+            else:
+                score = ats.get("ats_score", 0)
+                bar_filled = int(score / 10)
+                bar_empty  = 10 - bar_filled
+                bar_color  = "#4ade80" if score >= 70 else "#fbbf24" if score >= 50 else "#f87171"
+
+                with st.expander(f"ATS Report — {score}/100", expanded=True):
+                    st.markdown(f"""
+<div style="margin-bottom:12px">
+    <div style="font-family:'DM Mono',monospace;font-size:22px;font-weight:500;color:{bar_color}">{score}/100</div>
+    <div style="background:#1e1e1e;border-radius:4px;height:6px;margin:6px 0;overflow:hidden">
+        <div style="background:{bar_color};width:{score}%;height:100%;border-radius:4px"></div>
+    </div>
+    <div style="font-size:12px;color:#888;font-style:italic">{ats.get("score_reasoning","")}</div>
+</div>
+""", unsafe_allow_html=True)
+
+                    verdict = ats.get("overall_verdict", "")
+                    if verdict:
+                        st.markdown(f'<div style="background:#1a1a1a;border-left:3px solid #374151;padding:10px 14px;border-radius:0 8px 8px 0;font-size:13px;color:#aaa;margin-bottom:14px">{verdict}</div>', unsafe_allow_html=True)
+
+                    missing = ats.get("missing_keywords", [])
+                    present = ats.get("present_keywords", [])
+                    col_m, col_p = st.columns(2)
+
+                    with col_m:
+                        st.markdown("**Missing keywords**")
+                        if missing:
+                            for k in missing:
+                                imp_color = "#f87171" if k.get("importance") == "high" else "#fbbf24" if k.get("importance") == "medium" else "#888"
+                                st.markdown(f'<div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:6px"><span style="font-family:DM Mono,monospace;font-size:11px;background:#1e1e1e;padding:2px 7px;border-radius:4px;color:{imp_color};white-space:nowrap">{k.get("keyword","")}</span><span style="font-size:11px;color:#666">{k.get("where_to_add","")}</span></div>', unsafe_allow_html=True)
+                        else:
+                            st.markdown('<span style="font-size:12px;color:#4ade80">No critical gaps</span>', unsafe_allow_html=True)
+
+                    with col_p:
+                        st.markdown("**Already covered**")
+                        if present:
+                            chips = " ".join(f'<span style="font-family:DM Mono,monospace;font-size:11px;background:#14532d;color:#4ade80;padding:2px 7px;border-radius:4px;margin:2px;display:inline-block">{k}</span>' for k in present[:10])
+                            st.markdown(chips, unsafe_allow_html=True)
+
+                    weak = ats.get("weak_bullets", [])
+                    if weak:
+                        st.markdown("**Bullet rewrites**")
+                        for b in weak:
+                            st.markdown(f'<div style="background:#1a1a1a;border-radius:8px;padding:10px 12px;margin-bottom:8px"><div style="font-size:11px;color:#f87171;margin-bottom:4px">Before</div><div style="font-size:12px;color:#888;margin-bottom:8px">{b.get("original","")}</div><div style="font-size:11px;color:#4ade80;margin-bottom:4px">After</div><div style="font-size:12px;color:#ccc">{b.get("rewrite","")}</div></div>', unsafe_allow_html=True)
+
+                    wins = ats.get("quick_wins", [])
+                    if wins:
+                        st.markdown("**Quick wins (under 10 min)**")
+                        for w in wins:
+                            st.markdown(f'<div style="font-size:12px;color:#ccc;padding:4px 0;border-bottom:1px solid #1e1e1e">→ {w}</div>', unsafe_allow_html=True)
+
+                    issues = ats.get("skills_issues", [])
+                    if issues:
+                        st.markdown("**Skills section issues**")
+                        for iss in issues:
+                            st.markdown(f'<div style="font-size:12px;color:#fbbf24;margin-bottom:4px">⚠ {iss.get("issue","")} — <span style="color:#888">{iss.get("fix","")}</span></div>', unsafe_allow_html=True)
+
         # Show cover letter if generated
         if st.session_state.get(cl_key):
             with st.expander("Cover letter — click to expand/edit", expanded=True):
@@ -429,8 +508,10 @@ if page == "Apply queue":
                     if st.button("Save edits", key=f"save_{job_key}"):
                         LETTERS.mkdir(exist_ok=True)
                         import re
-                        fname = f"{datetime.now().strftime('%Y%m%d')}_{re.sub(r'[^\\w]','_',job.get('company','co'))[:30]}_{re.sub(r'[^\\w]','_',job.get('title','role'))[:30]}.txt"
-                        (LETTERS / fname).write_text(edited, encoding="utf-8")
+                        company_safe = re.sub(r'[^\w]', '_', job.get('company', 'co'))[:30]
+                        title_safe   = re.sub(r'[^\w]', '_', job.get('title', 'role'))[:30]
+                        name        = f"{datetime.now().strftime('%Y%m%d')}_{company_safe}_{title_safe}.txt"
+                        (LETTERS / name ).write_text(edited, encoding="utf-8")
                         st.success("Saved.")
 
         st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
