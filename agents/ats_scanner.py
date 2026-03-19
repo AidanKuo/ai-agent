@@ -58,6 +58,26 @@ def load_resume_text() -> str:
 
 # ── Prompt ────────────────────────────────────────────────────────────────────
 
+ATS_PROMPT_QUICK = """You are an ATS analyst. Score how well this resume matches the job posting.
+
+RESUME:
+{resume}
+
+JOB POSTING:
+Title: {title}
+Company: {company}
+Description: {description}
+
+Respond in EXACTLY this JSON format, nothing else:
+{{
+  "ats_score": <integer 0-100>,
+  "score_reasoning": "<one sentence explaining the score>"
+}}
+
+ATS score: 90-100 = strong match, 70-89 = good, 50-69 = moderate, below 50 = poor fit.
+Output valid JSON only, no markdown fences, no preamble."""
+
+
 ATS_PROMPT = """You are an expert ATS (Applicant Tracking System) analyst and resume coach.
 Analyze how well this resume matches the job posting.
 
@@ -102,16 +122,19 @@ Rules:
 
 # ── Core scanner ──────────────────────────────────────────────────────────────
 
-def scan_job(job: dict) -> dict:
+def scan_job(job: dict, model: str = None, resume: str = None, quick: bool = False) -> dict:
     """
     Run ATS analysis for a single job.
-    Returns parsed result dict or error dict.
+    quick=True returns only ats_score + score_reasoning (fast).
+    quick=False returns the full analysis with keywords, bullets, etc.
     """
-    cfg    = load_config()
-    model  = cfg["model"]["name"]
-    resume = load_resume_text()
+    if model is None or resume is None:
+        cfg    = load_config()
+        model  = model or cfg["model"]["name"]
+        resume = resume or load_resume_text()
 
-    prompt = ATS_PROMPT.format(
+    template = ATS_PROMPT_QUICK if quick else ATS_PROMPT
+    prompt = template.format(
         resume=resume,
         title=job.get("title", ""),
         company=job.get("company", ""),
@@ -140,7 +163,7 @@ def scan_job(job: dict) -> dict:
 
     except json.JSONDecodeError as e:
         log.error(f"ATS scan JSON parse failed: {e}")
-        return {"error": f"JSON parse failed: {e}", "raw": raw if "raw" in locals() else ""}
+        return {"error": f"JSON parse failed: {e}", "raw": raw}
     except Exception as e:
         log.error(f"ATS scan failed: {e}")
         return {"error": str(e)}
@@ -148,9 +171,12 @@ def scan_job(job: dict) -> dict:
 
 def scan_multiple(jobs: list[dict]) -> dict[str, dict]:
     """Scan multiple jobs, keyed by job ID."""
+    cfg    = load_config()
+    model  = cfg["model"]["name"]
+    resume = load_resume_text()
     results = {}
     for job in jobs:
-        results[job["id"]] = scan_job(job)
+        results[job["id"]] = scan_job(job, model=model, resume=resume)
     return results
 
 
@@ -170,8 +196,12 @@ if __name__ == "__main__":
 
     print(f"Scanning {min(3, len(queue))} jobs from your apply queue...\n")
 
+    cfg    = load_config()
+    model  = cfg["model"]["name"]
+    resume = load_resume_text()
+
     for job in queue[:3]:
-        result = scan_job(job)
+        result = scan_job(job, model=model, resume=resume)
 
         if "error" in result:
             print(f"ERROR: {result['error']}")

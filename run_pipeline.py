@@ -76,7 +76,7 @@ def main() -> None:
         log.error(f"Notifier failed: {e}")
 
     # ── Summary ───────────────────────────────────────
-    elapsed = (datetime.now() - start).seconds
+    elapsed = int((datetime.now() - start).total_seconds())
     log.info(f"{'='*50}")
     log.info(f"Pipeline complete in {elapsed}s")
     log.info(f"  New jobs scraped: {len(new_jobs)}")

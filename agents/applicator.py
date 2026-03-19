@@ -11,6 +11,9 @@ from pathlib import Path
 import ollama
 import yaml
 from dotenv import load_dotenv
+import sys as _sys, pathlib as _pathlib
+_sys.path.insert(0, str(_pathlib.Path(__file__).parent.parent))
+from agents.ats_scanner import scan_job as ats_scan_job
 
 # ── Setup ─────────────────────────────────────────────────────────────────────
 
@@ -254,14 +257,14 @@ def generate_keyword_gap(job: dict, resume: str, cfg: dict) -> str:
 
 
 def print_keyword_gap(gap_report: str) -> None:
-    print(f"\n{'─'*60}")
+    print(f"\n{'='*60}")
     print("KEYWORD GAP REPORT")
-    print(f"{'─'*60}")
+    print(f"{'='*60}")
     print(gap_report)
-    print(f"{'─'*60}")
+    print(f"{'='*60}")
     print("Edit profile/resume.tex now if anything is worth adding,")
     print("then recompile before submitting (Ctrl+S in VS Code).")
-    print(f"{'─'*60}")
+    print(f"{'='*60}")
 
 
 # ── Application launcher ──────────────────────────────────────────────────────
@@ -276,18 +279,18 @@ def print_application_pack(job: dict, letter: str, letter_path: Path, prefill: d
     print(f"Location: {job['location']}")
     print(f"Score:    {job.get('score', '?')}/10")
     print(f"URL:      {job.get('job_url', 'N/A')}")
-    print(f"{'─'*60}")
+    print(f"{'='*60}")
     print(f"FORM FIELDS (copy-paste ready):")
     print(f"  Full name:  {prefill['full_name']}")
     print(f"  Email:      {prefill['email']}")
     print(f"  Phone:      {prefill['phone']}")
     print(f"  LinkedIn:   {prefill['linkedin_url']}")
     print(f"  GitHub:     {prefill['github_url']}")
-    print(f"{'─'*60}")
+    print(f"{'='*60}")
     if letter_path:
         print(f"COVER LETTER saved to:")
         print(f"  {letter_path}")
-        print(f"{'─'*60}")
+        print(f"{'='*60}")
         print(f"COVER LETTER PREVIEW:")
         print()
         print(letter)
@@ -307,7 +310,7 @@ def open_job_url(url: str) -> None:
 
 # ── Core applicator ───────────────────────────────────────────────────────────
 
-def run_applicator(dry_run: bool = False, cover_letter: bool = False) -> None:
+def run_applicator(dry_run: bool = False, cover_letter: bool = False, ats_scan: bool = False) -> None:
     cfg        = load_config()
     resume     = load_resume_text()
     style      = load_cover_letter_template()
@@ -323,13 +326,14 @@ def run_applicator(dry_run: bool = False, cover_letter: bool = False) -> None:
     ]
 
     if not queue:
-        print("✓ No jobs in the apply queue. Run scorer + notifier first.")
+        print("No jobs in the apply queue. Run scorer + notifier first.")
         return
 
     # Respect daily limit
     queue = queue[:max_today]
     log.info(f"Apply queue: {len(queue)} jobs (daily limit: {max_today})")
 
+    apps_by_id    = {a["id"]: a for a in apps}
     applied_count = 0
 
     for i, job in enumerate(queue):
@@ -358,6 +362,21 @@ def run_applicator(dry_run: bool = False, cover_letter: bool = False) -> None:
         # Print the full application pack
         print_application_pack(job, letter, letter_path, prefill)
 
+        # ATS scan — optional, triggered by --ats-scan flag
+        if ats_scan:
+            log.info(f"  Running ATS scan...")
+            ats = ats_scan_job(job, resume=resume, model=cfg["model"]["name"])
+            if "error" not in ats:
+                score = ats.get("ats_score", 0)
+                bar   = "█" * (score // 10) + "░" * (10 - score // 10)
+                print(f"\nATS Score: {score}/100  [{bar}]")
+                print(f"  {ats.get('score_reasoning', '')}")
+                high_missing = [k for k in ats.get("missing_keywords", []) if k.get("importance") == "high"]
+                if high_missing:
+                    print("  High-priority missing keywords:")
+                    for k in high_missing:
+                        print(f"    - {k['keyword']}  ({k['where_to_add']})")
+
         if dry_run:
             print("\n[DRY RUN] Browser would open here. Job not marked as applied.")
             continue
@@ -378,14 +397,11 @@ def run_applicator(dry_run: bool = False, cover_letter: bool = False) -> None:
             open_job_url(job.get("job_url", ""))
 
             # Mark as applied
-            for app in apps:
-                if app["id"] == job["id"]:
-                    app["status"]     = "applied"
-                    app["applied_at"] = datetime.utcnow().isoformat()
-                    app["cover_letter_path"] = str(letter_path)
-                    break
+            app = apps_by_id[job["id"]]
+            app["status"]            = "applied"
+            app["applied_at"]        = datetime.utcnow().isoformat()
+            app["cover_letter_path"] = str(letter_path)
 
-            save_applications(apps)
             applied_count += 1
             log.info(f"  Marked as applied: {job['title']} @ {job['company']}")
 
@@ -393,6 +409,9 @@ def run_applicator(dry_run: bool = False, cover_letter: bool = False) -> None:
             if i < len(queue) - 1:
                 print("\nNext application in 3 seconds...")
                 time.sleep(3)
+
+    if applied_count:
+        save_applications(apps)
 
     print(f"\n{'='*60}")
     print(f"SESSION COMPLETE")
@@ -408,8 +427,11 @@ if __name__ == "__main__":
     import sys
     dry_run      = "--dry-run" in sys.argv
     cover_letter = "--cover-letter" in sys.argv
+    ats_scan     = "--ats-scan" in sys.argv
     if dry_run:
-        print("Running in DRY RUN mode — no browser will open, no jobs marked as applied.")
+        print("Running in DRY RUN mode -- no browser will open, no jobs marked as applied.")
     if cover_letter:
-        print("Cover letter mode ON — will generate and humanize a cover letter per job.")
-    run_applicator(dry_run=dry_run, cover_letter=cover_letter)
+        print("Cover letter mode ON -- will generate and humanize a cover letter per job.")
+    if ats_scan:
+        print("ATS scan ON -- will run resume analysis before each application.")
+    run_applicator(dry_run=dry_run, cover_letter=cover_letter, ats_scan=ats_scan)

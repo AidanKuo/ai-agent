@@ -189,6 +189,7 @@ def load_config():
         return yaml.safe_load(f)
 
 
+@st.cache_data(ttl=300)
 def load_resume_text():
     if not RESUME.exists():
         return ""
@@ -321,123 +322,153 @@ with st.sidebar:
 # ── Page: Apply queue ─────────────────────────────────────────────────────────
 
 if page == "Apply queue":
-    st.markdown('<div class="section-header">Apply queue</div>', unsafe_allow_html=True)
+    import re as _re
 
     cfg   = load_config()
     apps  = load_applications()
     queue = [a for a in apps if a.get("status") == "auto_apply" and not a.get("applied_at")]
 
-    if not queue:
-        st.info("Queue is empty — run the pipeline to scrape and score new jobs.")
-        st.stop()
-
     max_apply = cfg["scoring"]["max_applications_per_day"]
     applied_today = sum(
         1 for a in apps
         if a.get("status") == "applied"
-        and a.get("applied_at", "")[:10] == datetime.now().strftime("%Y-%m-%d")
+        and a.get("applied_at", "")[:10] == datetime.utcnow().strftime("%Y-%m-%d")
     )
 
+    # Header
     st.markdown(
-        f"**{len(queue)} jobs ready** — {applied_today}/{max_apply} applied today",
-        unsafe_allow_html=False,
+        f'<div class="section-header">Apply queue &nbsp;·&nbsp; {applied_today}/{max_apply} applied today &nbsp;·&nbsp; {len(queue)} remaining</div>',
+        unsafe_allow_html=True,
     )
 
-    st.markdown("---")
+    if applied_today >= max_apply:
+        st.success(f"Daily limit reached — {applied_today}/{max_apply} applied today. Come back tomorrow!")
+        st.stop()
 
-    for i, job in enumerate(queue):
-        pill_class, pill_text = score_color(job.get("score"))
-        job_key = job["id"][:8]
+    if not queue:
+        st.info("Queue is empty — run the pipeline to scrape and score new jobs.")
+        st.stop()
 
-        with st.container():
-            col1, col2 = st.columns([3, 1])
+    # Track position in queue
+    if "apply_idx" not in st.session_state:
+        st.session_state["apply_idx"] = 0
 
-            with col1:
-                st.markdown(f"""
-<div class="job-card">
-    <div class="job-title">{job.get('title','—')}</div>
-    <div class="job-meta">{job.get('company','—')} · {job.get('location','—')} · {job.get('site','—').capitalize()}</div>
-    <span class="score-pill {pill_class}">{pill_text}</span>
-    {'<span style="font-size:11px;color:#4ade80;font-family:DM Mono,monospace">Remote</span>' if job.get('is_remote') else ''}
+    idx = min(st.session_state["apply_idx"], len(queue) - 1)
+    job     = queue[idx]
+    job_key = job["id"][:8]
+    ats_key = f"ats_result_{job_key}"
+    cl_key  = f"cl_generated_{job_key}"
+    if ats_key not in st.session_state:
+        st.session_state[ats_key] = None
+    if cl_key not in st.session_state:
+        st.session_state[cl_key] = None
+
+    # ── Job card ──────────────────────────────────────────────────────────────
+
+    pill_class, pill_text = score_color(job.get("score"))
+    ats_score = job.get("ats_score")
+    ats_color = "#4ade80" if (ats_score or 0) >= 70 else "#fbbf24" if (ats_score or 0) >= 50 else "#f87171"
+
+    st.markdown(f"""
+<div class="job-card" style="padding:1.5rem;margin-bottom:12px">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start">
+        <div>
+            <div class="job-title" style="font-size:20px;margin-bottom:6px">{job.get('title','—')}</div>
+            <div class="job-meta" style="font-size:13px">{job.get('company','—')} &nbsp;·&nbsp; {job.get('location','—')} &nbsp;·&nbsp; {job.get('site','—').capitalize()}</div>
+            {'<div style="margin-top:6px"><span style="font-size:11px;color:#4ade80;font-family:DM Mono,monospace">Remote</span></div>' if job.get('is_remote') else ''}
+        </div>
+        <div style="text-align:right;flex-shrink:0;padding-left:16px">
+            <span class="score-pill {pill_class}" style="font-size:13px;padding:4px 12px">{pill_text}</span>
+            {f'<div style="font-family:DM Mono,monospace;font-size:12px;color:{ats_color};margin-top:6px">ATS {ats_score}/100</div>' if ats_score is not None else ''}
+        </div>
+    </div>
 </div>
 """, unsafe_allow_html=True)
 
-                if job.get("reasoning"):
-                    st.markdown(f'<div class="reasoning-box">{job["reasoning"]}</div>', unsafe_allow_html=True)
+    if job.get("reasoning"):
+        st.markdown(f'<div class="reasoning-box">{job["reasoning"]}</div>', unsafe_allow_html=True)
+    if job.get("ats_score_reasoning"):
+        st.markdown(f'<div class="reasoning-box" style="border-left-color:#4ade80;margin-top:6px">ATS: {job["ats_score_reasoning"]}</div>', unsafe_allow_html=True)
 
-            with col2:
-                st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
 
-                if st.button("Open job", key=f"open_{job_key}", use_container_width=True):
-                    url = job.get("job_url", "")
-                    if url:
-                        st.markdown(f'<meta http-equiv="refresh" content="0;url={url}">', unsafe_allow_html=True)
-                        st.markdown(f"[Click here if not redirected]({url})")
+    # ── Primary actions ───────────────────────────────────────────────────────
 
-                # Cover letter toggle
-                # ATS scan button
-                ats_key = f"ats_result_{job_key}"
-                if ats_key not in st.session_state:
-                    st.session_state[ats_key] = None
+    url = job.get("job_url", "")
+    c1, c2, c3 = st.columns([2, 1, 1])
 
-                if st.button("ATS scan", key=f"ats_{job_key}", use_container_width=True):
-                    with st.spinner("Scanning ATS match..."):
-                        try:
-                            sys.path.insert(0, str(BASE_DIR))
-                            from agents.ats_scanner import scan_job
-                            st.session_state[ats_key] = scan_job(job)
-                        except Exception as e:
-                            st.error(f"ATS scan failed: {e}")
+    with c1:
+        if url:
+            st.link_button("Open & Apply", url, use_container_width=True, type="primary")
+        else:
+            st.button("No URL available", use_container_width=True, disabled=True)
 
-                cl_key = f"cl_generated_{job_key}"
-                if cl_key not in st.session_state:
-                    st.session_state[cl_key] = None
+    with c2:
+        if st.button("Mark applied", key=f"apply_{job_key}", use_container_width=True, type="primary"):
+            for a in apps:
+                if a["id"] == job["id"]:
+                    a["status"]     = "applied"
+                    a["applied_at"] = datetime.utcnow().isoformat()
+                    cl = st.session_state.get(cl_key)
+                    if cl:
+                        LETTERS.mkdir(exist_ok=True)
+                        company_safe = _re.sub(r'[^\w]', '_', job.get('company', 'co'))[:30]
+                        title_safe   = _re.sub(r'[^\w]', '_', job.get('title', 'role'))[:30]
+                        name = f"{datetime.utcnow().strftime('%Y%m%d')}_{company_safe}_{title_safe}.txt"
+                        (LETTERS / name).write_text(cl, encoding="utf-8")
+                        a["cover_letter_path"] = str(LETTERS / name)
+                    break
+            save_applications(apps)
+            st.session_state["apply_idx"] = idx
+            st.rerun()
 
-                if st.button("Generate cover letter", key=f"gen_{job_key}", use_container_width=True):
-                    with st.spinner("Writing + humanizing..."):
-                        try:
-                            letter = generate_cover_letter(job, cfg)
-                            st.session_state[cl_key] = letter
-                            LETTERS.mkdir(exist_ok=True)
-                            import re
-                            company_safe = re.sub(r'[^\w]', '_', job.get('company', 'co'))[:30]
-                            title_safe   = re.sub(r'[^\w]', '_', job.get('title', 'role'))[:30]
-                            name        = f"{datetime.now().strftime('%Y%m%d')}_{company_safe}_{title_safe}.txt"
-                            (LETTERS / name).write_text(letter, encoding="utf-8")
-                        except Exception as e:
-                            st.error(f"Generation failed: {e}")
+    with c3:
+        if st.button("Skip", key=f"skip_{job_key}", use_container_width=True):
+            for a in apps:
+                if a["id"] == job["id"]:
+                    a["status"] = "skipped"
+                    break
+            save_applications(apps)
+            st.session_state["apply_idx"] = idx
+            st.rerun()
 
-                if st.button("Mark applied", key=f"apply_{job_key}", use_container_width=True, type="primary"):
-                    for a in apps:
-                        if a["id"] == job["id"]:
-                            a["status"]     = "applied"
-                            a["applied_at"] = datetime.utcnow().isoformat()
-                            break
-                    save_applications(apps)
-                    st.success(f"Marked as applied!")
-                    st.rerun()
+    st.markdown("---")
 
-                if st.button("Skip", key=f"skip_{job_key}", use_container_width=True):
-                    for a in apps:
-                        if a["id"] == job["id"]:
-                            a["status"] = "skipped"
-                            break
-                    save_applications(apps)
-                    st.rerun()
+    # ── Optional tools ────────────────────────────────────────────────────────
 
-        # Show ATS results if scanned
-        if st.session_state.get(ats_key):
-            ats = st.session_state[ats_key]
-            if "error" in ats:
-                st.error(f"ATS scan error: {ats['error']}")
-            else:
-                score = ats.get("ats_score", 0)
-                bar_filled = int(score / 10)
-                bar_empty  = 10 - bar_filled
-                bar_color  = "#4ade80" if score >= 70 else "#fbbf24" if score >= 50 else "#f87171"
+    t1, t2 = st.columns(2)
 
-                with st.expander(f"ATS Report — {score}/100", expanded=True):
-                    st.markdown(f"""
+    with t1:
+        if st.button("Full ATS report", key=f"ats_{job_key}", use_container_width=True):
+            with st.spinner("Running full ATS analysis..."):
+                try:
+                    sys.path.insert(0, str(BASE_DIR))
+                    from agents.ats_scanner import scan_job
+                    st.session_state[ats_key] = scan_job(job, quick=False)
+                except Exception as e:
+                    st.error(f"ATS scan failed: {e}")
+
+    with t2:
+        if st.button("Generate cover letter", key=f"gen_{job_key}", use_container_width=True):
+            with st.spinner("Writing + humanizing..."):
+                try:
+                    letter = generate_cover_letter(job, cfg)
+                    st.session_state[cl_key] = letter
+                except Exception as e:
+                    st.error(f"Generation failed: {e}")
+
+    # ── ATS full report display ───────────────────────────────────────────────
+
+    if st.session_state.get(ats_key):
+        ats = st.session_state[ats_key]
+        if "error" in ats:
+            st.error(f"ATS scan error: {ats['error']}")
+        else:
+            score     = ats.get("ats_score", 0)
+            bar_color = "#4ade80" if score >= 70 else "#fbbf24" if score >= 50 else "#f87171"
+
+            with st.expander(f"ATS Report — {score}/100", expanded=True):
+                st.markdown(f"""
 <div style="margin-bottom:12px">
     <div style="font-family:'DM Mono',monospace;font-size:22px;font-weight:500;color:{bar_color}">{score}/100</div>
     <div style="background:#1e1e1e;border-radius:4px;height:6px;margin:6px 0;overflow:hidden">
@@ -447,74 +478,72 @@ if page == "Apply queue":
 </div>
 """, unsafe_allow_html=True)
 
-                    verdict = ats.get("overall_verdict", "")
-                    if verdict:
-                        st.markdown(f'<div style="background:#1a1a1a;border-left:3px solid #374151;padding:10px 14px;border-radius:0 8px 8px 0;font-size:13px;color:#aaa;margin-bottom:14px">{verdict}</div>', unsafe_allow_html=True)
+                verdict = ats.get("overall_verdict", "")
+                if verdict:
+                    st.markdown(f'<div style="background:#1a1a1a;border-left:3px solid #374151;padding:10px 14px;border-radius:0 8px 8px 0;font-size:13px;color:#aaa;margin-bottom:14px">{verdict}</div>', unsafe_allow_html=True)
 
-                    missing = ats.get("missing_keywords", [])
-                    present = ats.get("present_keywords", [])
-                    col_m, col_p = st.columns(2)
+                missing = ats.get("missing_keywords", [])
+                present = ats.get("present_keywords", [])
+                col_m, col_p = st.columns(2)
 
-                    with col_m:
-                        st.markdown("**Missing keywords**")
-                        if missing:
-                            for k in missing:
-                                imp_color = "#f87171" if k.get("importance") == "high" else "#fbbf24" if k.get("importance") == "medium" else "#888"
-                                st.markdown(f'<div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:6px"><span style="font-family:DM Mono,monospace;font-size:11px;background:#1e1e1e;padding:2px 7px;border-radius:4px;color:{imp_color};white-space:nowrap">{k.get("keyword","")}</span><span style="font-size:11px;color:#666">{k.get("where_to_add","")}</span></div>', unsafe_allow_html=True)
-                        else:
-                            st.markdown('<span style="font-size:12px;color:#4ade80">No critical gaps</span>', unsafe_allow_html=True)
+                with col_m:
+                    st.markdown("**Missing keywords**")
+                    if missing:
+                        for k in missing:
+                            imp_color = "#f87171" if k.get("importance") == "high" else "#fbbf24" if k.get("importance") == "medium" else "#888"
+                            st.markdown(f'<div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:6px"><span style="font-family:DM Mono,monospace;font-size:11px;background:#1e1e1e;padding:2px 7px;border-radius:4px;color:{imp_color};white-space:nowrap">{k.get("keyword","")}</span><span style="font-size:11px;color:#666">{k.get("where_to_add","")}</span></div>', unsafe_allow_html=True)
+                    else:
+                        st.markdown('<span style="font-size:12px;color:#4ade80">No critical gaps</span>', unsafe_allow_html=True)
 
-                    with col_p:
-                        st.markdown("**Already covered**")
-                        if present:
-                            chips = " ".join(f'<span style="font-family:DM Mono,monospace;font-size:11px;background:#14532d;color:#4ade80;padding:2px 7px;border-radius:4px;margin:2px;display:inline-block">{k}</span>' for k in present[:10])
-                            st.markdown(chips, unsafe_allow_html=True)
+                with col_p:
+                    st.markdown("**Already covered**")
+                    if present:
+                        chips = " ".join(f'<span style="font-family:DM Mono,monospace;font-size:11px;background:#14532d;color:#4ade80;padding:2px 7px;border-radius:4px;margin:2px;display:inline-block">{k}</span>' for k in present[:10])
+                        st.markdown(chips, unsafe_allow_html=True)
 
-                    weak = ats.get("weak_bullets", [])
-                    if weak:
-                        st.markdown("**Bullet rewrites**")
-                        for b in weak:
-                            st.markdown(f'<div style="background:#1a1a1a;border-radius:8px;padding:10px 12px;margin-bottom:8px"><div style="font-size:11px;color:#f87171;margin-bottom:4px">Before</div><div style="font-size:12px;color:#888;margin-bottom:8px">{b.get("original","")}</div><div style="font-size:11px;color:#4ade80;margin-bottom:4px">After</div><div style="font-size:12px;color:#ccc">{b.get("rewrite","")}</div></div>', unsafe_allow_html=True)
+                weak = ats.get("weak_bullets", [])
+                if weak:
+                    st.markdown("**Bullet rewrites**")
+                    for b in weak:
+                        st.markdown(f'<div style="background:#1a1a1a;border-radius:8px;padding:10px 12px;margin-bottom:8px"><div style="font-size:11px;color:#f87171;margin-bottom:4px">Before</div><div style="font-size:12px;color:#888;margin-bottom:8px">{b.get("original","")}</div><div style="font-size:11px;color:#4ade80;margin-bottom:4px">After</div><div style="font-size:12px;color:#ccc">{b.get("rewrite","")}</div></div>', unsafe_allow_html=True)
 
-                    wins = ats.get("quick_wins", [])
-                    if wins:
-                        st.markdown("**Quick wins (under 10 min)**")
-                        for w in wins:
-                            st.markdown(f'<div style="font-size:12px;color:#ccc;padding:4px 0;border-bottom:1px solid #1e1e1e">→ {w}</div>', unsafe_allow_html=True)
+                wins = ats.get("quick_wins", [])
+                if wins:
+                    st.markdown("**Quick wins (under 10 min)**")
+                    for w in wins:
+                        st.markdown(f'<div style="font-size:12px;color:#ccc;padding:4px 0;border-bottom:1px solid #1e1e1e">- {w}</div>', unsafe_allow_html=True)
 
-                    issues = ats.get("skills_issues", [])
-                    if issues:
-                        st.markdown("**Skills section issues**")
-                        for iss in issues:
-                            st.markdown(f'<div style="font-size:12px;color:#fbbf24;margin-bottom:4px">⚠ {iss.get("issue","")} — <span style="color:#888">{iss.get("fix","")}</span></div>', unsafe_allow_html=True)
+                issues = ats.get("skills_issues", [])
+                if issues:
+                    st.markdown("**Skills section issues**")
+                    for iss in issues:
+                        st.markdown(f'<div style="font-size:12px;color:#fbbf24;margin-bottom:4px">! {iss.get("issue","")} — <span style="color:#888">{iss.get("fix","")}</span></div>', unsafe_allow_html=True)
 
-        # Show cover letter if generated
-        if st.session_state.get(cl_key):
-            with st.expander("Cover letter — click to expand/edit", expanded=True):
-                edited = st.text_area(
-                    "Edit before submitting",
-                    value=st.session_state[cl_key],
-                    height=320,
-                    key=f"cl_edit_{job_key}",
-                    label_visibility="collapsed",
-                )
-                st.session_state[cl_key] = edited
+    # ── Cover letter display ──────────────────────────────────────────────────
 
-                col_a, col_b = st.columns(2)
-                with col_a:
-                    if st.button("Copy to clipboard", key=f"copy_{job_key}"):
-                        st.code(edited, language=None)
-                with col_b:
-                    if st.button("Save edits", key=f"save_{job_key}"):
-                        LETTERS.mkdir(exist_ok=True)
-                        import re
-                        company_safe = re.sub(r'[^\w]', '_', job.get('company', 'co'))[:30]
-                        title_safe   = re.sub(r'[^\w]', '_', job.get('title', 'role'))[:30]
-                        name        = f"{datetime.now().strftime('%Y%m%d')}_{company_safe}_{title_safe}.txt"
-                        (LETTERS / name ).write_text(edited, encoding="utf-8")
-                        st.success("Saved.")
+    if st.session_state.get(cl_key):
+        with st.expander("Cover letter — click to expand/edit", expanded=True):
+            edited = st.text_area(
+                "Edit before submitting",
+                value=st.session_state[cl_key],
+                height=320,
+                key=f"cl_edit_{job_key}",
+                label_visibility="collapsed",
+            )
+            st.session_state[cl_key] = edited
 
-        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+            col_a, col_b = st.columns(2)
+            with col_a:
+                if st.button("Copy to clipboard", key=f"copy_{job_key}"):
+                    st.code(edited, language=None)
+            with col_b:
+                if st.button("Save edits", key=f"save_{job_key}"):
+                    LETTERS.mkdir(exist_ok=True)
+                    company_safe = _re.sub(r'[^\w]', '_', job.get('company', 'co'))[:30]
+                    title_safe   = _re.sub(r'[^\w]', '_', job.get('title', 'role'))[:30]
+                    name = f"{datetime.utcnow().strftime('%Y%m%d')}_{company_safe}_{title_safe}.txt"
+                    (LETTERS / name).write_text(edited, encoding="utf-8")
+                    st.success("Saved.")
 
 
 # ── Page: Pipeline logs ───────────────────────────────────────────────────────

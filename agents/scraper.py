@@ -123,7 +123,7 @@ def run_scraper() -> list[dict]:
     sites        = cfg.get("scraper", {}).get("sites", ["indeed", "linkedin"])
 
     all_new: list[dict] = []
-    run_seen = set()        # ← add this line
+    run_seen = set()
 
     for term in search_terms:
         for location in locations:
@@ -166,7 +166,6 @@ def run_scraper() -> list[dict]:
                 # Secondary dedup by title+company within this run
                 run_key = f"{job.get('title','').lower()}|{job.get('company','').lower()}"
                 if run_key in run_seen:
-                    seen.add(job_id)
                     continue
                 run_seen.add(run_key)
 
@@ -198,6 +197,18 @@ def run_scraper() -> list[dict]:
                 log.info(f"  New job: {record['title']} @ {record['company']}")
 
     save_seen_jobs(seen)
+
+    # Persist new jobs to applications.json for scorer to pick up
+    if all_new:
+        existing = []
+        if APPS_PATH.exists():
+            with open(APPS_PATH) as f:
+                existing = json.load(f)
+        existing.extend(all_new)
+        with open(APPS_PATH, "w") as f:
+            json.dump(existing, f, indent=2)
+        log.info(f"Saved {len(all_new)} new jobs to data/applications.json")
+
     log.info(f"Scrape complete — {len(all_new)} new jobs found")
     return all_new
 
@@ -213,16 +224,4 @@ if __name__ == "__main__":
     if not jobs:
         log.info("No new jobs this run.")
     else:
-        # Save to data/applications.json for scorer to pick up
-        existing = []
-        if APPS_PATH.exists():
-            with open(APPS_PATH) as f:
-                existing = json.load(f)
-
-        existing.extend(jobs)
-
-        with open(APPS_PATH, "w") as f:
-            json.dump(existing, f, indent=2)
-
-        log.info(f"Saved {len(jobs)} new jobs to data/applications.json")
         print(f"\n✓ {len(jobs)} new jobs ready for scoring.")

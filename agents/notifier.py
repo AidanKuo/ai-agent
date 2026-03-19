@@ -84,8 +84,14 @@ def format_job_embed(job: dict) -> discord.Embed:
     embed.add_field(name="Site",   value=job.get("site", "—").capitalize(),        inline=True)
     embed.add_field(name="Remote", value="Yes" if job.get("is_remote") else "No",  inline=True)
 
+    if job.get("ats_score") is not None:
+        embed.add_field(name="ATS Score", value=f"{job['ats_score']}/100", inline=True)
+
     if job.get("reasoning"):
         embed.add_field(name="Why this score", value=job["reasoning"], inline=False)
+
+    if job.get("ats_score_reasoning"):
+        embed.add_field(name="ATS reasoning", value=job["ats_score_reasoning"], inline=False)
 
     if job.get("salary_min") and job.get("salary_max"):
         embed.add_field(
@@ -151,6 +157,9 @@ class ApprovalBot(discord.Client):
         job      = self.pending_by_msg.pop(reaction.message.id)
         apps     = load_applications()
         full_job = find_job_by_id(apps, job["id"])
+        if full_job is None:
+            log.warning(f"Reaction received for unknown job ID: {job['id']}")
+            return
         status   = REACTION_MAP[emoji]
         full_job["status"] = status
         save_applications(apps)
