@@ -1,0 +1,96 @@
+==========================================
+ OpenClaw - Setup Reference
+==========================================
+
+WHAT RUNS AUTOMATICALLY
+-----------------------
+- Ollama:         starts on Windows login (via Ollama installer shortcut)
+- Dashboard:      starts on Windows login (via Startup folder bat)
+                  -> http://localhost:8501
+- Pipeline:       runs every day at 9:00 AM (via Windows Task Scheduler)
+                  -> scrapes jobs, scores them, posts to Discord
+
+
+DAILY WORKFLOW
+--------------
+1. Pipeline runs at 9am while you sleep
+2. Check Discord - react to jobs with:
+     - checkmark  = approve for applying
+     - X          = reject
+     - skip arrow = skip
+3. Open dashboard (http://localhost:8501)
+4. Go through apply queue one by one:
+     - "Open & Apply" opens the job URL in your browser
+     - Apply on the company site
+     - Come back, click "Mark applied"
+     - Optionally: "Full ATS report" or "Generate cover letter"
+5. Stop at 5 applications/day (enforced automatically)
+
+
+KEY FILES
+---------
+Project root:   C:\Users\OpenClawAgent\Projects\ai-agent\
+Config:         config\settings.yaml        <- search terms, daily limit, model
+Environment:    .env                        <- Discord token, Ollama host
+Resume:         profile\resume.tex          <- your resume (LaTeX)
+Cover letter:   profile\cover_letter_template.md
+Preferences:    profile\preferences.md      <- job preferences, hard nos
+Applications:   data\applications.json      <- all jobs and their statuses
+Seen jobs:      data\seen_jobs.json         <- dedup tracker
+Cover letters:  data\cover_letters\         <- generated cover letters
+Logs:           logs\agent.log              <- full pipeline log
+
+
+CONFIG YOU MIGHT WANT TO CHANGE (config/settings.yaml)
+-------------------------------------------------------
+- model.name:                    qwen3:8b (the Ollama model used for scoring/ATS)
+- scraper.search_terms:          what job titles to search for
+- scraper.hours_old:             only scrape jobs posted in last N hours (default 72)
+- scraper.results_per_search:    how many results per search term (default 25)
+- scoring.auto_apply_threshold:  score >= this -> auto queue (default 8)
+- scoring.review_threshold:      score >= this -> needs review (default 6)
+- scoring.max_applications_per_day: daily application cap (default 5)
+
+
+ENVIRONMENT VARIABLES (.env)
+-----------------------------
+DISCORD_BOT_TOKEN     = your Discord bot token
+DISCORD_CHANNEL_ID    = channel ID where job notifications are posted
+OLLAMA_HOST           = http://localhost:11434 (default)
+
+
+IF SOMETHING IS WRONG
+---------------------
+Dashboard not loading:
+  -> Run start_openclaw.bat manually
+
+Pipeline didn't run:
+  -> Open Task Scheduler, find "OpenClaw Pipeline", right-click -> Run
+  -> Or run manually: cd to project folder, then:
+     .venv\Scripts\python run_pipeline.py
+
+Ollama not responding:
+  -> Open Ollama from Start Menu or system tray
+  -> Wait ~30 seconds, then retry
+
+Discord bot not posting:
+  -> Check DISCORD_BOT_TOKEN in .env is correct
+  -> Make sure the bot is invited to your server with message permissions
+
+Jobs not being scored (scorer finds 0 jobs):
+  -> Check data\applications.json - jobs should have status "scraped"
+  -> Run scorer manually: .venv\Scripts\python agents\scorer.py
+
+To reset the apply queue (mark all auto_apply as scraped for re-scoring):
+  -> Edit data\applications.json manually or run the pipeline again
+
+
+MANUAL COMMANDS (run from project folder)
+------------------------------------------
+Run full pipeline:     .venv\Scripts\python run_pipeline.py
+Run scraper only:      .venv\Scripts\python agents\scraper.py
+Run scorer only:       .venv\Scripts\python agents\scorer.py
+Run applicator:        .venv\Scripts\python agents\applicator.py
+Run applicator dry:    .venv\Scripts\python agents\applicator.py --dry-run
+Run ATS scan:          .venv\Scripts\python agents\ats_scanner.py
+Start dashboard:       .venv\Scripts\streamlit run dashboard.py
