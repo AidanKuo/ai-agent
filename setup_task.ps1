@@ -11,7 +11,7 @@ $principal = New-ScheduledTaskPrincipal `
     -RunLevel Highest
 
 Register-ScheduledTask `
-    -TaskName 'OpenClaw Pipeline' `
+    -TaskName 'Jarvis Pipeline' `
     -Action $action `
     -Trigger $trigger `
     -Principal $principal `

@@ -7,9 +7,6 @@ from pathlib import Path
 import ollama
 import yaml
 from dotenv import load_dotenv
-import sys as _sys, pathlib as _pathlib
-_sys.path.insert(0, str(_pathlib.Path(__file__).parent.parent))
-from agents.ats_scanner import scan_job as ats_scan_job
 
 # ── Setup ─────────────────────────────────────────────────────────────────────
 
@@ -131,6 +128,7 @@ def score_job(job: dict, resume: str, prefs: str, cfg: dict) -> tuple[int, str]:
         response = ollama.chat(
             model=model,
             messages=[{"role": "user", "content": prompt}],
+            format="json",
             options={"temperature": 0.1},  # low temp for consistent scoring
         )
         text = response["message"]["content"]
@@ -168,12 +166,6 @@ def run_scorer() -> dict:
             job["status"] = "auto_apply"
             results["auto"].append(job)
             log.info(f"  Score {score}/10 -> AUTO APPLY  | {reasoning}")
-            # Quick ATS scan for auto-apply jobs — stores score for dashboard/notifier
-            ats = ats_scan_job(job, model=cfg["model"]["name"], resume=resume, quick=True)
-            if "error" not in ats:
-                job["ats_score"]          = ats.get("ats_score")
-                job["ats_score_reasoning"] = ats.get("score_reasoning")
-                log.info(f"  ATS score: {job['ats_score']}/100 | {job['ats_score_reasoning']}")
         elif score >= review_threshold:
             job["status"] = "needs_review"
             results["review"].append(job)

@@ -147,15 +147,25 @@ def scan_job(job: dict, model: str = None, resume: str = None, quick: bool = Fal
         response = ollama.chat(
             model=model,
             messages=[{"role": "user", "content": prompt}],
+            format="json",
             options={"temperature": 0.1},
         )
         raw = response["message"]["content"].strip()
+
+        # Strip think blocks (qwen3 reasoning tokens)
+        raw = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL).strip()
 
         # Strip markdown fences if model added them anyway
         raw = re.sub(r"^```json\s*", "", raw)
         raw = re.sub(r"^```\s*", "", raw)
         raw = re.sub(r"\s*```$", "", raw)
         raw = raw.strip()
+
+        # Extract outermost JSON object in case model added preamble/postamble
+        start = raw.find("{")
+        end   = raw.rfind("}")
+        if start != -1 and end != -1:
+            raw = raw[start:end + 1]
 
         result = json.loads(raw)
         log.info(f"  ATS score: {result.get('ats_score')}/100")

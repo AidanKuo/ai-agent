@@ -4,9 +4,7 @@ run_pipeline.py
 Master pipeline — runs every morning via Windows Task Scheduler.
 Chains: scraper → scorer → notifier (Discord)
 
-Applicator is NOT run automatically — it requires manual confirmation.
-After this script runs, check Discord and then run:
-    python agents/applicator.py
+After this script runs, check Discord then review jobs in the dashboard (localhost:8501).
 """
 
 import logging
@@ -83,7 +81,7 @@ def main() -> None:
     log.info(f"  Auto-apply queue: {auto}")
     log.info(f"  Needs review:     {review}")
     log.info(f"  Skipped:          {skipped}")
-    log.info(f"Next step: check Discord, then run applicator.py")
+    log.info(f"Next step: check Discord, then review jobs in the dashboard (localhost:8501)")
     log.info(f"{'='*50}")
 
 

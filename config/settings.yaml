@@ -11,24 +11,57 @@ scraper:
   sites:
     - indeed
     - linkedin
+    - glassdoor
+    - zip_recruiter
   search_terms:
-    - data analyst
+    # Data / Analytics (primary focus)
+    - entry level data analyst
     - junior data analyst
+    - data analyst
     - business intelligence analyst
-    - python developer
     - analytics engineer
+    - reporting analyst
+    - data analytics associate
+    - junior analytics engineer
+    # Python / Software (secondary)
+    - entry level python developer
+    - junior python developer
+    - junior software engineer
+    - entry level software developer
+    # Actuary path
+    - actuarial analyst
+    - actuarial assistant
+    - entry level actuary
+    - actuarial intern
+    - insurance analyst
+    - risk analyst
+    - underwriting analyst
+    - pricing analyst
+    # IT / Help desk (stepping stone)
+    - entry level IT
+    - IT support analyst
+    - help desk analyst
+    - junior IT specialist
+    - technical support analyst
+    - IT help desk
+    # Data engineering
+    - junior data engineer
+    - entry level data engineer
+    - ETL developer
+    # General entry level tech
+    - entry level technology
+    - new grad data
+    - new grad analyst
   locations:
     - United States
-    # - Seattle, WA        # your other target city
-  is_remote: false        # this filters for remote roles across all locations
-  hours_old: 72          # only jobs posted in the last 3 days
+  is_remote: false        # false = include all jobs (remote + on-site + hybrid)
+  hours_old: 72           # only jobs posted in the last 3 days
   results_per_search: 25  # per site per search term
 
 # Scoring thresholds
 scoring:
   auto_apply_threshold: 8
-  review_threshold: 6
-  max_applications_per_day: 5
+  review_threshold: 7        # score 7 → send to Discord for manual review
 
 # Profile paths
 profile:

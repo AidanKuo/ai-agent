@@ -1,3 +1,4 @@
+import concurrent.futures
 import json
 import logging
 import os
@@ -129,19 +130,23 @@ def run_scraper() -> list[dict]:
         for location in locations:
             log.info(f"Scraping: '{term}' in '{location}'")
             try:
-                df = scrape_jobs(
-                    site_name=sites,
-                    search_term=term,
-                    location=location,
-                    results_wanted=results_each,
-                    hours_old=hours_old,
-                    country_indeed="USA",
-                    linkedin_fetch_description=True,
-                    is_remote=cfg.get("scraper", {}).get("is_remote", False),
-                )
+                scrape_timeout = cfg.get("scraper", {}).get("timeout_seconds", 120)
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                    future = executor.submit(
+                        scrape_jobs,
+                        site_name=sites,
+                        search_term=term,
+                        location=location,
+                        results_wanted=results_each,
+                        hours_old=hours_old,
+                        country_indeed="USA",
+                        linkedin_fetch_description=True,
+                        is_remote=cfg.get("scraper", {}).get("is_remote", False),
+                    )
+                    df = future.result(timeout=scrape_timeout)
 
                 # ── sanitize ──────────────────────────────────────────────────
-                str_cols = ["title", "company", "location", "description", 
+                str_cols = ["title", "company", "location", "description",
                             "job_url", "site", "date_posted"]
                 for col in str_cols:
                     if col in df.columns:
@@ -150,6 +155,9 @@ def run_scraper() -> list[dict]:
                 # drop rows with no title or company
                 df = df[df["title"].str.strip() != ""]
 
+            except concurrent.futures.TimeoutError:
+                log.warning(f"Scrape timed out for '{term}' in '{location}' — skipping")
+                continue
             except Exception as e:
                 log.error(f"Scrape failed for '{term}' in '{location}': {e}")
                 continue

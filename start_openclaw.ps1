@@ -5,7 +5,7 @@ $STREAMLIT = "$PROJECT\.venv\Scripts\streamlit.exe"
 
 Write-Host ""
 Write-Host "=========================================="
-Write-Host " OpenClaw - Startup"
+Write-Host " Jarvis - Startup"
 Write-Host "=========================================="
 Write-Host ""
 
@@ -47,9 +47,15 @@ if ($LASTEXITCODE -ne 0) {
     Write-Host "      qwen3:8b is ready."
 }
 
-# --- 3. Start dashboard ---
+# --- 3. Start OpenClaw gateway ---
 Write-Host ""
-Write-Host "[3/3] Starting dashboard..."
+Write-Host "[3/4] Starting Jarvis gateway..."
+Start-Process "openclaw" -ArgumentList "gateway start" -WindowStyle Hidden
+Write-Host "      Jarvis gateway started."
+
+# --- 4. Start dashboard ---
+Write-Host ""
+Write-Host "[4/4] Starting dashboard..."
 
 # Kill any existing Streamlit on port 8501
 $existing = netstat -aon | Select-String ":8501" | ForEach-Object {
@@ -69,6 +75,7 @@ Write-Host "      Dashboard started at http://localhost:8501"
 Write-Host ""
 Write-Host "=========================================="
 Write-Host " All systems ready."
+Write-Host " Jarvis gateway running — message it on Discord."
 Write-Host " Pipeline runs automatically at 9:00 AM."
 Write-Host "=========================================="
 Write-Host ""
