@@ -1,0 +1,157 @@
+# config/portals.yml — Company portal scanner config
+#
+# Supports Greenhouse, Ashby, and Lever APIs.
+# Detection is automatic from careers_url — or provide api: directly.
+#
+# To add a company:
+#   1. Find their careers page URL
+#   2. Add an entry below with name + careers_url (or api:)
+#   3. Set enabled: false to skip without deleting
+
+# ── Title filter ────────────────────────────────────────────────────────────
+# Applied to all companies. Leave positive empty to accept any title.
+title_filter:
+  positive:
+    - analyst
+    - data
+    - python
+    - sql
+    - BI
+    - business intelligence
+    - reporting
+    - actuarial
+    - insurance
+    - underwriting
+    - pricing
+    - risk
+    - IT support
+    - help desk
+    - technical support
+    - ETL
+    - engineer
+    - GIS
+    - geospatial
+    - finance
+    - financial
+    - operations
+  negative:
+    - senior
+    - director
+    - manager
+    - staff
+    - principal
+    - architect
+    - "5+ years"
+    - "5 years"
+    - "6+ years"
+    - "7+ years"
+    - "8+ years"
+    - "10+ years"
+    - VP
+    - head of
+    - lead
+    - "III"
+    - " IV"
+
+# ── Tracked companies ───────────────────────────────────────────────────────
+
+tracked_companies:
+
+  # ── Greenhouse ─────────────────────────────────────────────────────────
+  - name: Stripe
+    api: https://boards-api.greenhouse.io/v1/boards/stripe/jobs
+    enabled: true
+
+  - name: Figma
+    api: https://boards-api.greenhouse.io/v1/boards/figma/jobs
+    enabled: true
+
+  - name: HubSpot
+    api: https://boards-api.greenhouse.io/v1/boards/hubspot/jobs
+    enabled: true
+
+  - name: Databricks
+    api: https://boards-api.greenhouse.io/v1/boards/databricks/jobs
+    enabled: true
+
+  - name: Duolingo
+    api: https://boards-api.greenhouse.io/v1/boards/duolingo/jobs
+    enabled: true
+
+  - name: Reddit
+    api: https://boards-api.greenhouse.io/v1/boards/reddit/jobs
+    enabled: true
+
+  - name: Brex
+    api: https://boards-api.greenhouse.io/v1/boards/brex/jobs
+    enabled: true
+
+  - name: Palantir
+    api: https://boards-api.greenhouse.io/v1/boards/palantir/jobs
+    enabled: true
+
+  - name: Robinhood
+    api: https://boards-api.greenhouse.io/v1/boards/robinhood/jobs
+    enabled: true
+
+  - name: Coinbase
+    api: https://boards-api.greenhouse.io/v1/boards/coinbase/jobs
+    enabled: true
+
+  - name: Zendesk
+    api: https://boards-api.greenhouse.io/v1/boards/zendesk/jobs
+    enabled: true
+
+  - name: OpenAI
+    api: https://boards-api.greenhouse.io/v1/boards/openai/jobs
+    enabled: true
+
+  # ── Ashby ───────────────────────────────────────────────────────────────
+  - name: Ramp
+    careers_url: https://jobs.ashbyhq.com/ramp
+    enabled: true
+
+  - name: Linear
+    careers_url: https://jobs.ashbyhq.com/linear
+    enabled: true
+
+  - name: Retool
+    careers_url: https://jobs.ashbyhq.com/retool
+    enabled: true
+
+  - name: Mercury
+    careers_url: https://jobs.ashbyhq.com/mercury
+    enabled: true
+
+  - name: Rippling
+    careers_url: https://jobs.ashbyhq.com/rippling
+    enabled: true
+
+  - name: Loom
+    careers_url: https://jobs.ashbyhq.com/loom
+    enabled: true
+
+  - name: Descript
+    careers_url: https://jobs.ashbyhq.com/descript
+    enabled: true
+
+  # ── Lever ───────────────────────────────────────────────────────────────
+  - name: Airtable
+    careers_url: https://jobs.lever.co/airtable
+    enabled: true
+
+  - name: Plaid
+    careers_url: https://jobs.lever.co/plaid
+    enabled: true
+
+  - name: Grammarly
+    careers_url: https://jobs.lever.co/grammarly
+    enabled: true
+
+  - name: Dropbox
+    careers_url: https://jobs.lever.co/dropbox
+    enabled: true
+
+  - name: Affirm
+    careers_url: https://jobs.lever.co/affirm
+    enabled: true
