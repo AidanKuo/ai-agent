@@ -4,6 +4,7 @@
 # Data and logs — stays local only
 data/
 logs/
+*.log
 
 # Python
 __pycache__/

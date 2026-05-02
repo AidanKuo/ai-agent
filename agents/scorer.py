@@ -2,8 +2,10 @@ import json
 import logging
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from pathlib import Path
 
+import httpx
 import ollama
 import yaml
 from dotenv import load_dotenv
@@ -21,11 +23,12 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-BASE_DIR  = Path(__file__).parent.parent
-CONFIG    = BASE_DIR / "config" / "settings.yaml"
-APPS_PATH = BASE_DIR / "data" / "applications.json"
-RESUME    = BASE_DIR / "profile" / "resume.tex"
-PREFS     = BASE_DIR / "profile" / "preferences.md"
+BASE_DIR     = Path(__file__).parent.parent
+CONFIG       = BASE_DIR / "config" / "settings.yaml"
+APPS_PATH    = BASE_DIR / "data" / "applications.json"
+RESUME       = BASE_DIR / "profile" / "resume.tex"
+PREFS        = BASE_DIR / "profile" / "preferences.md"
+PROMPT_PATH  = BASE_DIR / "config" / "scoring_prompt.md"
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -68,53 +71,57 @@ def save_applications(apps: list[dict]) -> None:
         json.dump(apps, f, indent=2)
 
 
-def parse_score(response: str) -> tuple[int, str]:
-    """Extract score (1-10) and reasoning from model response."""
-    # Look for SCORE: N pattern
-    match = re.search(r"SCORE:\s*([0-9]|10)", response, re.IGNORECASE)
-    score = int(match.group(1)) if match else 0
-
-    # Extract reasoning — everything after REASONING:
-    reasoning_match = re.search(r"REASONING:\s*(.+)", response, re.IGNORECASE | re.DOTALL)
-    reasoning = reasoning_match.group(1).strip()[:500] if reasoning_match else response[:300]
-
-    return score, reasoning
+def _load_prompt_template() -> str:
+    if PROMPT_PATH.exists():
+        return PROMPT_PATH.read_text(encoding="utf-8")
+    raise FileNotFoundError(f"Scoring prompt not found: {PROMPT_PATH}")
 
 
-# ── Scoring prompt ────────────────────────────────────────────────────────────
+def parse_score(response: str) -> dict:
+    """Extract all scored fields from model response."""
+    def _int(pattern: str) -> int:
+        m = re.search(pattern, response, re.IGNORECASE)
+        try:
+            return max(1, min(10, int(m.group(1)))) if m else 0
+        except (ValueError, AttributeError):
+            return 0
 
-SCORE_PROMPT = """You are a job fit evaluator. Score how well this job matches the candidate.
+    def _str(pattern: str, fallback: str = "") -> str:
+        m = re.search(pattern, response, re.IGNORECASE)
+        return m.group(1).strip() if m else fallback
 
-CANDIDATE RESUME:
-{resume}
+    score        = _int(r"SCORE:\s*([0-9]|10)")
+    tech_match   = _int(r"TECH_MATCH:\s*([0-9]|10)")
+    seniority    = _int(r"SENIORITY_FIT:\s*([0-9]|10)")
+    archetype    = _str(r"ARCHETYPE:\s*([^\n]+)")
+    reasoning_raw = _str(r"REASONING:\s*([^\n]+)", response[:300])
+    reasoning    = reasoning_raw[:500]
 
-JOB PREFERENCES:
-{preferences}
+    gaps_raw = _str(r"GAPS:\s*([^\n]+)")
+    if gaps_raw.lower() in ("none", ""):
+        gaps: list[str] = []
+    else:
+        gaps = [g.strip() for g in gaps_raw.split("|") if g.strip()]
 
-JOB TO EVALUATE:
-Title: {title}
-Company: {company}
-Location: {location}
-Remote: {is_remote}
-Description: {description}
-
-Evaluate fit on these criteria:
-1. Title matches target roles (data analyst, BI analyst, python developer, analytics engineer)
-2. Required experience level is entry to junior (0-3 years), NOT senior or principal
-3. Skills match (Python, SQL, data analysis, pandas, Power BI, Tableau, etc.)
-4. Location works (Houston TX, Seattle WA, or remote)
-5. No hard nos (no SAP admin, no commission-only, no 5+ years required)
-
-Respond in EXACTLY this format, nothing else:
-SCORE: [1-10]
-REASONING: [one sentence explaining the score]"""
+    return {
+        "score":        score,
+        "reasoning":    reasoning,
+        "archetype":    archetype,
+        "tech_match":   tech_match,
+        "seniority_fit": seniority,
+        "gaps":         gaps,
+    }
 
 
 # ── Core scorer ───────────────────────────────────────────────────────────────
 
-def score_job(job: dict, resume: str, prefs: str, cfg: dict) -> tuple[int, str]:
-    model = cfg["model"]["name"]
-    prompt = SCORE_PROMPT.format(
+def score_job(job: dict, resume: str, prefs: str, cfg: dict) -> dict:
+    model          = cfg["model"]["name"]
+    auto_threshold = cfg["scoring"]["auto_apply_threshold"]
+    think_mode     = cfg["model"].get("think_mode", False)
+
+    template = _load_prompt_template()
+    prompt   = template.format(
         resume=resume,
         preferences=prefs,
         title=job.get("title", ""),
@@ -122,20 +129,31 @@ def score_job(job: dict, resume: str, prefs: str, cfg: dict) -> tuple[int, str]:
         location=job.get("location", ""),
         is_remote=job.get("is_remote", False),
         description=job.get("description", "")[:1500],
+        auto_threshold=auto_threshold,
     )
 
-    try:
-        response = ollama.chat(
+    def _call():
+        client = ollama.Client(timeout=httpx.Timeout(connect=10, read=90, write=10, pool=10))
+        resp   = client.chat(
             model=model,
             messages=[{"role": "user", "content": prompt}],
-            format="json",
-            options={"temperature": 0.1},  # low temp for consistent scoring
+            options={"temperature": 0.1, "think": think_mode},
         )
-        text = response["message"]["content"]
+        return resp["message"]["content"]
+
+    executor = ThreadPoolExecutor(max_workers=1)
+    try:
+        future = executor.submit(_call)
+        text   = future.result(timeout=120)
         return parse_score(text)
+    except FuturesTimeoutError:
+        log.error(f"Scoring timed out for {job.get('title')} @ {job.get('company')}")
+        return {"score": 0, "reasoning": "Error: timed out", "archetype": "", "tech_match": 0, "seniority_fit": 0, "gaps": []}
     except Exception as e:
         log.error(f"Scoring failed for {job.get('title')} @ {job.get('company')}: {e}")
-        return 0, f"Error: {e}"
+        return {"score": 0, "reasoning": f"Error: {e}", "archetype": "", "tech_match": 0, "seniority_fit": 0, "gaps": []}
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
 
 
 def run_scorer() -> dict:
@@ -144,47 +162,50 @@ def run_scorer() -> dict:
     prefs  = load_preferences_text()
     apps   = load_applications()
 
-    auto_threshold   = cfg["scoring"]["auto_apply_threshold"]
-    review_threshold = cfg["scoring"]["review_threshold"]
+    auto_threshold = cfg["scoring"]["auto_apply_threshold"]
 
     # Only score jobs not yet scored
     to_score = [j for j in apps if j.get("score") is None and j.get("status") == "scraped"]
     log.info(f"Jobs to score: {len(to_score)}")
 
-    results = {"auto": [], "review": [], "skip": []}
+    results = {"auto": [], "rejected": []}
 
     for i, job in enumerate(to_score):
         log.info(f"[{i+1}/{len(to_score)}] Scoring: {job['title']} @ {job['company']}")
 
-        score, reasoning = score_job(job, resume, prefs, cfg)
+        result = score_job(job, resume, prefs, cfg)
+        score  = result["score"]
 
-        # Update job record in place
-        job["score"]     = score
-        job["reasoning"] = reasoning
+        job["score"]         = score
+        job["reasoning"]     = result["reasoning"]
+        job["archetype"]     = result["archetype"]
+        job["score_breakdown"] = {
+            "tech_match":    result["tech_match"],
+            "seniority_fit": result["seniority_fit"],
+        }
+        job["gaps"] = result["gaps"]
 
         if score >= auto_threshold:
             job["status"] = "auto_apply"
             results["auto"].append(job)
-            log.info(f"  Score {score}/10 -> AUTO APPLY  | {reasoning}")
-        elif score >= review_threshold:
-            job["status"] = "needs_review"
-            results["review"].append(job)
-            log.info(f"  Score {score}/10 -> NEEDS REVIEW | {reasoning}")
+            log.info(f"  {score}/10 [{result['archetype']}] -> AUTO APPLY | {result['reasoning']}")
         else:
-            job["status"] = "skipped"
-            results["skip"].append(job)
-            log.info(f"  Score {score}/10 -> SKIPPED      | {reasoning}")
+            job["status"] = "rejected"
+            results["rejected"].append(job)
+            log.info(f"  {score}/10 [{result['archetype']}] -> REJECTED   | {result['reasoning']}")
 
-        # Small delay to avoid hammering Ollama
         time.sleep(0.5)
+
+        if (i + 1) % 10 == 0:
+            save_applications(apps)
+            log.info(f"  [checkpoint] saved at {i+1}/{len(to_score)}")
 
     save_applications(apps)
 
     log.info(
-        f"\nScoring complete — "
+        f"\nScoring complete - "
         f"Auto: {len(results['auto'])} | "
-        f"Review: {len(results['review'])} | "
-        f"Skipped: {len(results['skip'])}"
+        f"Rejected: {len(results['rejected'])}"
     )
     return results
 
@@ -199,15 +220,9 @@ if __name__ == "__main__":
     print(f"{'='*50}")
 
     if results["auto"]:
-        print(f"\n✓ AUTO APPLY ({len(results['auto'])} jobs):")
+        print(f"\n[AUTO APPLY] ({len(results['auto'])} jobs):")
         for j in results["auto"]:
-            print(f"  [{j['score']}/10] {j['title']} @ {j['company']} — {j['location']}")
+            print(f"  [{j['score']}/10] {j['title']} @ {j['company']} - {j['location']}")
 
-    if results["review"]:
-        print(f"\n? NEEDS YOUR REVIEW ({len(results['review'])} jobs):")
-        for j in results["review"]:
-            print(f"  [{j['score']}/10] {j['title']} @ {j['company']} — {j['location']}")
-            print(f"         {j['reasoning']}")
-
-    if results["skip"]:
-        print(f"\n✗ SKIPPED ({len(results['skip'])} jobs — low fit)")
+    if results["rejected"]:
+        print(f"\n[REJECTED] ({len(results['rejected'])} jobs - low fit)")

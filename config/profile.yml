@@ -1,0 +1,157 @@
+# config/profile.yml — Candidate identity and job search parameters
+# Read by modes/_shared.md and all career-ops mode files
+
+# ── Identity ────────────────────────────────────────────────────────────────
+name: Aidan Kuo
+email: aidanlkuo@gmail.com
+phone: "(832) 206-5968"
+location: Seattle, WA
+linkedin: linkedin.com/in/aidan-kuo
+github: github.com/aidankuo
+
+# ── Education ────────────────────────────────────────────────────────────────
+education:
+  degree: B.A. in Geography: Data Science, Minor in Informatics
+  school: University of Washington
+  location: Seattle, WA
+  graduation: June 2025
+  relevant_coursework:
+    - Advanced Methods in Data Science
+    - Computer Programming I/II/III
+    - Data Structures and Algorithms
+    - Databases and Data Modeling
+
+# ── Experience level ────────────────────────────────────────────────────────
+experience_level: new_grad   # new_grad | junior | mid | senior
+years_experience: 0          # professional experience (projects don't count)
+
+# ── Actuarial path ──────────────────────────────────────────────────────────
+actuarial:
+  studying: true
+  exams_passed: []
+  exams_in_progress:
+    - P    # Probability
+    - FM   # Financial Mathematics
+
+# ── Target roles (in priority order) ────────────────────────────────────────
+target_roles:
+  primary:
+    - Data Analyst
+    - Junior Data Analyst
+    - Entry-Level Data Analyst
+    - Business Intelligence Analyst
+    - Reporting Analyst
+    - Analytics Engineer
+    - Data Analytics Associate
+
+  secondary:
+    - Actuarial Analyst
+    - Actuarial Assistant
+    - Insurance Analyst
+    - Risk Analyst
+    - Underwriting Analyst
+    - Pricing Analyst
+    - Junior Software Engineer
+    - Python Developer
+
+  stepping_stone:
+    - IT Support Analyst
+    - Help Desk Analyst
+    - Technical Support Analyst
+    - Junior IT Specialist
+    - Junior Data Engineer
+    - ETL Developer
+
+# ── Role archetypes ──────────────────────────────────────────────────────────
+# Used by modes to classify roles and adapt proof points
+archetypes:
+  - name: Data Analyst
+    signals: [SQL, Tableau, Power BI, reporting, dashboards, analytics, visualization, BI]
+    proof_points:
+      - "CSV Analyst Bot: 80% reduction in manual analysis time"
+      - "AI Model Video Game Analysis: 98% ML accuracy on 10k+ dataset"
+      - "Skills: Python, SQL, pandas, Tableau, Power BI, Matplotlib"
+
+  - name: Actuarial/Insurance
+    signals: [actuarial, pricing, underwriting, risk, insurance, P&C, reserving, loss ratio]
+    proof_points:
+      - "Studying for Exam P and FM"
+      - "Background in statistical analysis and probability"
+      - "AI Model Video Game Analysis: statistical modeling and prediction"
+
+  - name: IT Support
+    signals: [help desk, ticketing, troubleshooting, Tier 1, technical support, ServiceNow]
+    proof_points:
+      - "DubHacks: deployed and maintained web app in production"
+      - "Strong debugging and problem-solving from programming coursework"
+      - "Cross-device QA and user testing experience"
+
+  - name: Business Analyst
+    signals: [requirements, stakeholder, UAT, JIRA, process improvement, Agile]
+    proof_points:
+      - "DubHacks: presented data-driven findings to stakeholders and judges"
+      - "VetConnect: gathered user requirements and iterated based on testing"
+      - "CSV Analyst Bot: translated business need into automated solution"
+
+  - name: Data Engineer
+    signals: [ETL, pipeline, dbt, Airflow, Spark, warehouse, ingestion, data quality]
+    proof_points:
+      - "CSV Analyst Bot: built ETL pipeline for CSV data processing"
+      - "AI Model Video Game Analysis: ETL and data wrangling on 10k+ entries"
+      - "Skills: Python, SQL, pandas, Git"
+
+  - name: Finance Analyst
+    signals: [FP&A, forecasting, variance, P&L, budget, Excel modeling, financial reporting]
+    proof_points:
+      - "Statistical analysis and data modeling background"
+      - "Actuarial exam preparation (P, FM)"
+      - "AI Model Video Game Analysis: quantitative analysis and prediction"
+
+# ── Compensation ─────────────────────────────────────────────────────────────
+compensation:
+  currency: USD
+  minimum: 55000
+  target: 75000
+  stretch: 85000
+  note: "Flexible on starting salary for actuarial/high-growth roles with clear advancement"
+
+# ── Location ──────────────────────────────────────────────────────────────────
+location_preferences:
+  primary_roles: "US-wide, including remote"
+  it_support_roles: "Greater Houston TX, Seattle WA, or California only"
+  relocation: true
+  hard_filter: false   # location is NEVER a disqualifying hard filter
+
+# ── Hard NOs ─────────────────────────────────────────────────────────────────
+hard_nos:
+  - Active security clearance required
+  - Commission-only or unpaid
+  - Staffing agency / contract-to-hire with no permanent path
+  - Project-based or short-term contract
+  - 3+ years of professional experience required (strict)
+  - No mention of data, analytics, tech, IT, or insurance
+
+# ── Green flags ───────────────────────────────────────────────────────────────
+green_flags:
+  - Python or SQL as primary tools
+  - Dashboards, reporting, or BI tools mentioned
+  - Geospatial or mapping data (strong GIS background)
+  - NLP, LLMs, or AI tooling (CSV Analyst Bot)
+  - Actuarial exam support or study time as benefit
+  - Insurance, risk modeling, or underwriting
+  - Mentorship, training program, or rotational program
+  - "New grad" or "early career" explicitly listed
+  - Healthcare or insurance industry
+
+# ── CV files ──────────────────────────────────────────────────────────────────
+cv:
+  markdown: cv.md                          # primary source — always read this first
+  latex: profile/resume.tex               # original LaTeX source
+  cover_letter_style: "profile/aidan-cover-letter-prompt (1).md"
+
+# ── OpenClaw pipeline ─────────────────────────────────────────────────────────
+openclaw:
+  dashboard: http://localhost:8050
+  applications_db: data/applications.json
+  cover_letters_dir: data/cover_letters
+  resumes_dir: data/resumes

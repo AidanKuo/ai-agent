@@ -36,9 +36,8 @@
 - Any entry-level tech role that builds toward data or actuarial work
 
 ## Target locations
-- Remote (equally preferred alongside in-office)
-- Anywhere in the United States is acceptable
-- Preference for: Seattle, WA / California / Texas (Houston, Austin, Dallas)
+- Primary roles (data analyst, BI, analytics, software, actuary): anywhere in the United States, including remote
+- IT / help desk / technical support roles: Greater Houston TX, Seattle WA, or California only
 - Open to relocation for the right opportunity
 - This is NOT a hard filter — do not reject jobs based on location alone
 
@@ -88,7 +87,9 @@ help desk, IT support, technical support, troubleshooting, ticketing system
 SAP, Oracle ERP, Salesforce admin, 5+ years required, senior only,
 manual QA testing, no coding mentioned, no coding, Excel-only with no other tools,
 requires MBA, requires PhD, requires CPA, director-level, manager-level,
-10+ years, principal, staff engineer, architect-level
+10+ years, principal, staff engineer, architect-level, II,
+3+ years of experience, 3+ years experience, minimum 3 years, at least 3 years,
+4+ years, 4 years of experience, 6+ years, 7+ years, 8+ years
 
 ## Role signals that are a plus
 - Mentions Python or SQL as primary tools

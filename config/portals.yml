@@ -12,30 +12,42 @@
 # Applied to all companies. Leave positive empty to accept any title.
 title_filter:
   positive:
-    - analyst
-    - data
-    - python
-    - sql
-    - BI
+    # Data / analytics roles
+    - data analyst
+    - analytics analyst
+    - analytics engineer
+    - BI analyst
     - business intelligence
-    - reporting
+    - reporting analyst
+    - data scientist
+    # Business & operations analyst roles
+    - business analyst
+    - operations analyst
+    - process analyst
+    # Finance / actuarial roles
+    - financial analyst
+    - finance analyst
     - actuarial
-    - insurance
     - underwriting
-    - pricing
-    - risk
+    - pricing analyst
+    - risk analyst
+    # IT / support roles
     - IT support
     - help desk
     - technical support
+    # Data engineering roles
+    - data engineer
     - ETL
-    - engineer
-    - GIS
-    - geospatial
-    - finance
-    - financial
-    - operations
+    - GIS analyst
+    - geospatial analyst
+    # Entry-level signals (pass anything that says new grad / junior / entry level)
+    - new grad
+    - entry level
+    - junior
   negative:
     - senior
+    - " sr "
+    - "sr."
     - director
     - manager
     - staff
@@ -49,9 +61,13 @@ title_filter:
     - "10+ years"
     - VP
     - head of
-    - lead
+    - " lead"
     - "III"
     - " IV"
+    - account executive
+    - account manager
+    - recruiter
+    - sourcer
 
 # ── Tracked companies ───────────────────────────────────────────────────────
 
@@ -87,7 +103,7 @@ tracked_companies:
     enabled: true
 
   - name: Palantir
-    api: https://boards-api.greenhouse.io/v1/boards/palantir/jobs
+    api: https://api.lever.co/v0/postings/palantir   # uses Lever, not Greenhouse
     enabled: true
 
   - name: Robinhood
@@ -99,14 +115,25 @@ tracked_companies:
     enabled: true
 
   - name: Zendesk
-    api: https://boards-api.greenhouse.io/v1/boards/zendesk/jobs
+    enabled: false   # uses Workday — no public API
+
+  - name: Grammarly
+    api: https://boards-api.greenhouse.io/v1/boards/grammarly/jobs
+    enabled: false   # Greenhouse slug returns 404 — may have moved ATS
+
+  - name: Dropbox
+    api: https://boards-api.greenhouse.io/v1/boards/dropbox/jobs   # uses Greenhouse
     enabled: true
 
-  - name: OpenAI
-    api: https://boards-api.greenhouse.io/v1/boards/openai/jobs
+  - name: Airtable
+    api: https://boards-api.greenhouse.io/v1/boards/airtable/jobs   # uses Greenhouse, not Lever
     enabled: true
 
   # ── Ashby ───────────────────────────────────────────────────────────────
+  - name: OpenAI
+    api: https://api.ashbyhq.com/posting-api/job-board/openai   # uses Ashby, not Greenhouse
+    enabled: true
+
   - name: Ramp
     careers_url: https://jobs.ashbyhq.com/ramp
     enabled: true
@@ -124,34 +151,19 @@ tracked_companies:
     enabled: true
 
   - name: Rippling
-    careers_url: https://jobs.ashbyhq.com/rippling
-    enabled: true
+    enabled: false   # uses Rippling's own internal ATS — no public API
 
   - name: Loom
     careers_url: https://jobs.ashbyhq.com/loom
     enabled: true
 
   - name: Descript
-    careers_url: https://jobs.ashbyhq.com/descript
-    enabled: true
+    enabled: false   # ATS undetectable — careers page not returning standard API
 
   # ── Lever ───────────────────────────────────────────────────────────────
-  - name: Airtable
-    careers_url: https://jobs.lever.co/airtable
-    enabled: true
-
   - name: Plaid
     careers_url: https://jobs.lever.co/plaid
     enabled: true
 
-  - name: Grammarly
-    careers_url: https://jobs.lever.co/grammarly
-    enabled: true
-
-  - name: Dropbox
-    careers_url: https://jobs.lever.co/dropbox
-    enabled: true
-
   - name: Affirm
-    careers_url: https://jobs.lever.co/affirm
-    enabled: true
+    enabled: false   # Lever slug returns 404 — may have migrated ATS

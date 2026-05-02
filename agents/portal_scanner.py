@@ -17,8 +17,8 @@ from pathlib import Path
 import requests
 import yaml
 
-from lib.constants import APPS_PATH, BASE_DIR
-
+BASE_DIR       = Path(__file__).parent.parent
+APPS_PATH      = BASE_DIR / "data" / "applications.json"
 PORTALS_PATH   = BASE_DIR / "config" / "portals.yml"
 SEEN_JOBS_PATH = BASE_DIR / "data" / "seen_jobs.json"
 

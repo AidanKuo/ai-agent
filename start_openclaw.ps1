@@ -38,13 +38,13 @@ try {
 
 # --- 2. Verify model ---
 Write-Host ""
-Write-Host "[2/3] Checking model (qwen3:8b)..."
-& $PYTHON -c "import ollama; r = ollama.list(); models = [m.model for m in r.models] if hasattr(r, 'models') else [m['name'] for m in r.get('models', [])]; exit(0 if any('qwen3:8b' in m for m in models) else 1)" 2>$null | Out-Null
+Write-Host "[2/3] Checking model (gemma3:12b)..."
+& $PYTHON -c "import ollama; r = ollama.list(); models = [m.model for m in r.models] if hasattr(r, 'models') else [m['name'] for m in r.get('models', [])]; exit(0 if any('gemma3:12b' in m for m in models) else 1)" 2>$null | Out-Null
 if ($LASTEXITCODE -ne 0) {
-    Write-Host "      Model not found - pulling qwen3:8b (this may take a while)..."
-    ollama pull qwen3:8b
+    Write-Host "      Model not found - pulling gemma3:12b (this may take a while)..."
+    ollama pull gemma3:12b
 } else {
-    Write-Host "      qwen3:8b is ready."
+    Write-Host "      gemma3:12b is ready."
 }
 
 # --- 3. Start OpenClaw gateway ---
@@ -55,10 +55,10 @@ Write-Host "      Jarvis gateway started."
 
 # --- 4. Start dashboard ---
 Write-Host ""
-Write-Host "[4/4] Starting dashboard..."
+Write-Host "[4/4] Starting dashboard (JARVIS Dash)..."
 
-# Kill any existing Streamlit on port 8501
-$existing = netstat -aon | Select-String ":8501" | ForEach-Object {
+# Kill any existing process on port 8050
+$existing = netstat -aon | Select-String ":8050" | ForEach-Object {
     ($_ -split "\s+")[-1]
 } | Select-Object -Unique
 foreach ($procId in $existing) {
@@ -67,15 +67,15 @@ foreach ($procId in $existing) {
     }
 }
 
-Start-Process $STREAMLIT -ArgumentList "run `"$PROJECT\dashboard.py`" --server.port 8501 --server.headless true" -WorkingDirectory $PROJECT
+Start-Process $PYTHON -ArgumentList "dash_app.py" -WorkingDirectory $PROJECT -WindowStyle Hidden
 Start-Sleep -Seconds 3
-Start-Process "http://localhost:8501"
+Start-Process "http://localhost:8050"
 
-Write-Host "      Dashboard started at http://localhost:8501"
+Write-Host "      Dashboard started at http://localhost:8050"
 Write-Host ""
 Write-Host "=========================================="
 Write-Host " All systems ready."
-Write-Host " Jarvis gateway running — message it on Discord."
+Write-Host " Jarvis gateway running - message it on Discord."
 Write-Host " Pipeline runs automatically at 9:00 AM."
 Write-Host "=========================================="
 Write-Host ""
