@@ -62,8 +62,10 @@ Jobs in `data/applications.json` progress through these statuses:
 ### Agent Details
 
 - **scraper.py**: Uses `jobspy` to query Indeed, LinkedIn, ZipRecruiter. Deduplicates via UUID5 stable IDs (`uuid5(title|company|location)`). Applies hard keyword filters from `preferences.md`.
-- **scorer.py**: Sends job description + resume + preferences to Ollama (`gemma3:12b`, temp 0.1). Assigns 1–10 score with reasoning. Score ≥ 7 → `auto_apply`, else → `rejected`.
+- **scorer.py**: Sends job description + resume + preferences to Ollama (`gemma3:12b`, temp 0.1). Structured output: SCORE, ARCHETYPE, TECH_MATCH, SENIORITY_FIT, GAPS. Score ≥ 7 → `auto_apply`, else → `rejected`. Prompt lives in `config/scoring_prompt.md`.
 - **ats_scanner.py**: Compares resume keywords against a job description via Ollama. Returns score (0–100), missing keywords, weak bullet rewrites, and improvement suggestions.
+- **portal_scanner.py**: Hits Greenhouse, Ashby, and Lever APIs directly (zero-LLM). Filters by title keywords from `config/portals.yml`. Writes to applications.json in same format as scraper.
+- **pdf_generator.py**: Renders a tailored resume markdown to PDF via Playwright/Chromium. Parses cv.md structure, fills `templates/cv-template.html`, outputs to `data/resumes/`. CLI: `python agents/pdf_generator.py [--job JOB_ID | --md FILE]`. Programmatic: `from agents.pdf_generator import render_resume_pdf`.
 - **dash_app.py**: Dash UI on port 8050. Three tabs: Dashboard (health/topology), Pipeline (job list + detail panel with ATS, Research, Cover Letter, apply actions), Masterlist (Buy/Todo/Watch lists).
 
 ### Library Modules (`lib/`)
@@ -89,6 +91,11 @@ Jobs in `data/applications.json` progress through these statuses:
 | `run_pipeline.py` | Orchestrates scraper → scorer → Discord briefing (all inline, no separate notifier module) |
 | `start_openclaw.ps1` | Startup script: checks Ollama, verifies model, starts gateway, launches dashboard |
 | `assets/jarvis.css` | Dash static stylesheet |
+| `templates/cv-template.html` | HTML resume template (filled + rendered to PDF by pdf_generator.py) |
+| `cv.md` | Resume in markdown — source of truth for pdf_generator and career-ops modes |
+| `config/profile.yml` | Candidate identity: name, email, phone, LinkedIn, GitHub, education, auth status |
+| `config/scoring_prompt.md` | LLM scoring prompt template (editable without touching scorer.py) |
+| `modes/` | Career-ops mode files: apply, followup, contacto, interview-prep, pdf, oferta, deep |
 
 ### Cover Letter Flow (two-step in dashboard)
 

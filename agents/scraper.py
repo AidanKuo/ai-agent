@@ -99,12 +99,19 @@ def make_job_id(job: pd.Series) -> str:
 
 def is_hard_no(job: pd.Series, prefs: dict) -> bool:
     """Return True if any bad keyword appears in title or description."""
-    text = " ".join([
-        str(job.get("title", "")),
-        str(job.get("description", "")),
-    ]).lower()
+    title = str(job.get("title", "")).lower()
+    text  = (title + " " + str(job.get("description", ""))).lower()
     for kw in prefs["bad_keywords"]:
-        if kw and kw in text:
+        if not kw:
+            continue
+        # Short all-alpha keywords (e.g. "ii") matched against title only
+        # using word boundaries to avoid false positives in long descriptions.
+        if len(kw) <= 3 and kw.isalpha():
+            import re
+            if re.search(rf"\b{re.escape(kw)}\b", title):
+                log.info(f"  Filtered (bad keyword '{kw}'): {job.get('title')} @ {job.get('company')}")
+                return True
+        elif kw in text:
             log.info(f"  Filtered (bad keyword '{kw}'): {job.get('title')} @ {job.get('company')}")
             return True
     return False
@@ -117,21 +124,36 @@ def run_scraper() -> list[dict]:
     prefs = load_preferences()
     seen  = load_seen_jobs()
 
-    search_terms = cfg.get("scraper", {}).get("search_terms", ["data analyst"])
-    locations    = cfg.get("scraper", {}).get("locations", ["Houston, TX"])
-    hours_old    = cfg.get("scraper", {}).get("hours_old", 72)
-    results_each = cfg.get("scraper", {}).get("results_per_search", 25)
-    sites        = cfg.get("scraper", {}).get("sites", ["indeed", "linkedin"])
+    scraper_cfg  = cfg.get("scraper", {})
+    hours_old    = scraper_cfg.get("hours_old", 72)
+    results_each = scraper_cfg.get("results_per_search", 25)
+    sites        = scraper_cfg.get("sites", ["indeed", "linkedin"])
+
+    # Support both search_groups (new) and flat search_terms/locations (legacy)
+    search_groups = scraper_cfg.get("search_groups")
+    if not search_groups:
+        search_groups = [{
+            "terms":     scraper_cfg.get("search_terms", ["data analyst"]),
+            "locations": scraper_cfg.get("locations", ["United States"]),
+        }]
+
+    # Also load IDs already in applications.json to prevent cross-term duplicates
+    if APPS_PATH.exists():
+        with open(APPS_PATH) as f:
+            existing = json.load(f)
+        for j in existing:
+            seen.add(j["id"])
 
     all_new: list[dict] = []
     run_seen = set()
 
-    for term in search_terms:
-        for location in locations:
-            log.info(f"Scraping: '{term}' in '{location}'")
-            try:
-                scrape_timeout = cfg.get("scraper", {}).get("timeout_seconds", 120)
-                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+    for group in search_groups:
+        for term in group["terms"]:
+            for location in group["locations"]:
+                log.info(f"Scraping: '{term}' in '{location}'")
+                try:
+                    scrape_timeout = cfg.get("scraper", {}).get("timeout_seconds", 120)
+                    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
                     future = executor.submit(
                         scrape_jobs,
                         site_name=sites,
@@ -143,66 +165,72 @@ def run_scraper() -> list[dict]:
                         linkedin_fetch_description=True,
                         is_remote=cfg.get("scraper", {}).get("is_remote", False),
                     )
-                    df = future.result(timeout=scrape_timeout)
+                    try:
+                        df = future.result(timeout=scrape_timeout)
+                    except concurrent.futures.TimeoutError:
+                        executor.shutdown(wait=False, cancel_futures=True)
+                        log.warning(f"Scrape timed out for '{term}' in '{location}' — skipping")
+                        continue
+                    finally:
+                        executor.shutdown(wait=False)
 
-                # ── sanitize ──────────────────────────────────────────────────
-                str_cols = ["title", "company", "location", "description",
-                            "job_url", "site", "date_posted"]
-                for col in str_cols:
-                    if col in df.columns:
-                        df[col] = df[col].fillna("").astype(str)
+                    # ── sanitize ──────────────────────────────────────────────────
+                    str_cols = ["title", "company", "location", "description",
+                                "job_url", "site", "date_posted"]
+                    for col in str_cols:
+                        if col in df.columns:
+                            df[col] = df[col].fillna("").astype(str)
 
-                # drop rows with no title or company
-                df = df[df["title"].str.strip() != ""]
+                    # drop rows with no title or company
+                    df = df[df["title"].str.strip() != ""]
 
-            except concurrent.futures.TimeoutError:
-                log.warning(f"Scrape timed out for '{term}' in '{location}' — skipping")
-                continue
-            except Exception as e:
-                log.error(f"Scrape failed for '{term}' in '{location}': {e}")
-                continue
-
-            log.info(f"  Raw results: {len(df)}")
-
-            for _, job in df.iterrows():
-                job_id = make_job_id(job)
-
-                # Skip already seen
-                if job_id in seen:
+                except Exception as e:
+                    log.error(f"Scrape failed for '{term}' in '{location}': {e}")
                     continue
 
-                # Secondary dedup by title+company within this run
-                run_key = f"{job.get('title','').lower()}|{job.get('company','').lower()}"
-                if run_key in run_seen:
-                    continue
-                run_seen.add(run_key)
+                log.info(f"  Raw results: {len(df)}")
 
-                # Skip hard nos immediately
-                if is_hard_no(job, prefs):
+                for _, job in df.iterrows():
+                    job_id = make_job_id(job)
+
+                    # Skip already seen
+                    if job_id in seen:
+                        continue
+
+                    # Secondary dedup by title+company within this run
+                    run_key = f"{job.get('title','').lower()}|{job.get('company','').lower()}"
+                    if run_key in run_seen:
+                        continue
+                    run_seen.add(run_key)
+
+                    # Skip hard nos immediately
+                    if is_hard_no(job, prefs):
+                        seen.add(job_id)
+                        continue
+
+                    record = {
+                        "id":          job_id,
+                        "title":       str(job.get("title", "")).strip(),
+                        "company":     str(job.get("company", "")).strip(),
+                        "location":    str(job.get("location", "")).strip(),
+                        "job_url":        str(job.get("job_url", "")),
+                        "job_url_direct": str(job.get("job_url_direct", "")),
+                        "site":           str(job.get("site", "")),
+                        "description": str(job.get("description", ""))[:3000],  # cap length
+                        "date_posted": str(job.get("date_posted", "")),
+                        "salary_min":  str(job.get("min_amount", "")),
+                        "salary_max":  str(job.get("max_amount", "")),
+                        "is_remote":   bool(job.get("is_remote", False)),
+                        "scraped_at":  datetime.utcnow().isoformat(),
+                        "search_group": group.get("name", "primary"),
+                        "status":      "scraped",
+                        "score":       None,
+                        "applied_at":  None,
+                    }
+
                     seen.add(job_id)
-                    continue
-
-                record = {
-                    "id":          job_id,
-                    "title":       str(job.get("title", "")).strip(),
-                    "company":     str(job.get("company", "")).strip(),
-                    "location":    str(job.get("location", "")).strip(),
-                    "job_url":     str(job.get("job_url", "")),
-                    "site":        str(job.get("site", "")),
-                    "description": str(job.get("description", ""))[:3000],  # cap length
-                    "date_posted": str(job.get("date_posted", "")),
-                    "salary_min":  str(job.get("min_amount", "")),
-                    "salary_max":  str(job.get("max_amount", "")),
-                    "is_remote":   bool(job.get("is_remote", False)),
-                    "scraped_at":  datetime.utcnow().isoformat(),
-                    "status":      "scraped",
-                    "score":       None,
-                    "applied_at":  None,
-                }
-
-                seen.add(job_id)
-                all_new.append(record)
-                log.info(f"  New job: {record['title']} @ {record['company']}")
+                    all_new.append(record)
+                    log.info(f"  New job: {record['title']} @ {record['company']}")
 
     save_seen_jobs(seen)
 
