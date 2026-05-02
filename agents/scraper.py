@@ -245,6 +245,9 @@ def run_scraper() -> list[dict]:
             json.dump(existing, f, indent=2)
         log.info(f"Saved {len(all_new)} new jobs to data/applications.json")
 
+        from lib.pipeline_log import append_jobs
+        append_jobs(all_new)
+
     log.info(f"Scrape complete — {len(all_new)} new jobs found")
     return all_new
 

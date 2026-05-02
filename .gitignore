@@ -6,6 +6,10 @@ data/
 logs/
 *.log
 
+# Career-ops outputs — always local
+reports/
+output/
+
 # Python
 __pycache__/
 *.pyc

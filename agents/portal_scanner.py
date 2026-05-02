@@ -285,6 +285,9 @@ def run_portal_scanner(dry_run: bool = False) -> list[dict]:
     new_ids = {j["id"] for j in new_jobs}
     _save_seen(seen_ids | new_ids)
 
+    from lib.pipeline_log import append_jobs
+    append_jobs(new_jobs)
+
     return new_jobs
 
 
