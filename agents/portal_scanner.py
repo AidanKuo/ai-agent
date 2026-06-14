@@ -172,7 +172,7 @@ def _fetch_json(url: str) -> dict | list:
     resp = requests.get(
         url,
         timeout=FETCH_TIMEOUT,
-        headers={"User-Agent": "OpenClaw/1.0"},
+        headers={"User-Agent": "JobPipelineBot/1.0"},
     )
     resp.raise_for_status()
     return resp.json()

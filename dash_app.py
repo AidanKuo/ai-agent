@@ -12,7 +12,6 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import dash_bootstrap_components as dbc
-import dash_cytoscape as cyto
 import pandas as pd
 
 from dash import (
@@ -21,16 +20,10 @@ from dash import (
 )
 
 from lib.constants import APPS_PATH, CONFIG_PATH
-from lib.resume import generate_cover_letter, save_cover_letter_pdf, rewrite_sentence
-from lib.company_researcher import research_company, ResearchContext
-from utils.list_data import add_item, load_lists, remove_item
-from utils.gateway import check_gateway_heartbeat, check_gateway_online, get_gateway_info
 
 import yaml
 
 # ── App init ──────────────────────────────────────────────────────────────────
-
-cyto.load_extra_layouts()
 
 app = Dash(
     __name__,
@@ -40,6 +33,74 @@ app = Dash(
 )
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+_AGGREGATOR_HOSTS = {
+    "indeed":        ("indeed.com", "indeed.co"),
+    "linkedin":      ("linkedin.com",),
+    "zip_recruiter": ("ziprecruiter.com",),
+    "glassdoor":     ("glassdoor.com",),
+    "google":        ("google.com",),
+}
+
+
+def _clean_url(value) -> str:
+    """Return a usable URL string, or '' for empty/nan/None values."""
+    s = str(value or "").strip()
+    return "" if s.lower() in ("", "nan", "none") else s
+
+
+def _url_host(url: str) -> str:
+    """Return lowercase hostname (no www., no port). Empty string on parse failure."""
+    from urllib.parse import urlparse
+    try:
+        host = (urlparse(url).hostname or "").lower()
+        return host[4:] if host.startswith("www.") else host
+    except Exception:
+        return ""
+
+
+def _apply_urls(job: dict) -> tuple[str, str]:
+    """Return (direct_apply_url, aggregator_url). Either may be ''.
+
+    If job_url_direct points back to the aggregator's own domain (e.g. an
+    Indeed-hosted apply form), it's NOT a true direct link — return '' for it.
+    """
+    direct = _clean_url(job.get("job_url_direct"))
+    agg    = _clean_url(job.get("job_url"))
+    site   = (job.get("site") or "").lower()
+    blocked_hosts = _AGGREGATOR_HOSTS.get(site, ())
+    if direct and blocked_hosts:
+        host = _url_host(direct)
+        if any(host == h or host.endswith("." + h) for h in blocked_hosts):
+            direct = ""
+    return direct, agg
+
+
+def _best_apply_url(job: dict) -> str:
+    """Prefer direct ATS link over aggregator link. Returns '' if neither exists."""
+    direct, agg = _apply_urls(job)
+    return direct or agg
+
+
+def _source_category(job: dict) -> str:
+    """Classify the apply path. Used for filter buttons.
+
+    Returns one of: 'apply_direct', 'indeed', 'linkedin', 'easy_apply', 'other'
+
+    Note: 'easy_apply' is heuristic — LinkedIn jobs without a usable direct URL
+    are *likely* Easy Apply (or auth-walled), but we can't tell with certainty
+    without an authenticated LinkedIn session.
+    """
+    direct, _ = _apply_urls(job)
+    site = (job.get("site") or "").lower()
+    if site == "linkedin":
+        return "linkedin" if direct else "easy_apply"
+    if direct:
+        return "apply_direct"
+    if site == "indeed":
+        return "indeed"
+    return "other"
+
 
 _apps_cache: list = []
 _apps_mtime: float = 0.0
@@ -78,7 +139,7 @@ def _update_applied_xlsx(apps: list) -> None:
     df = pd.DataFrame([{
         "Company":     j.get("company", ""),
         "Title":       j.get("title", ""),
-        "URL":         j.get("job_url", ""),
+        "URL":         _best_apply_url(j),
         "Applied At":  (j.get("applied_at", "") or "")[:10],
         "Date Posted": j.get("date_posted", ""),
         "Location":    j.get("location", ""),
@@ -229,128 +290,11 @@ STATUS_LABELS = {
 
 # ── Shared card builders ──────────────────────────────────────────────────────
 
-def _card(label, value, value_class, sub_lines):
-    subs = [html.Div(s, style={"lineHeight": "1.7"}) for s in sub_lines]
-    return html.Div([
-        html.Div([html.Span(label)], className="card-label"),
-        html.Div(value, className=f"card-value {value_class}"),
-        html.Div(subs, className="card-sub"),
-    ], className="jarvis-card")
-
-
 def _info_row(key, val, val_class=""):
     return html.Div([
         html.Span(key, className="info-key"),
         html.Span(val, className=f"info-val {val_class}"),
     ], className="info-row")
-
-
-def _stat_chip(label, value, sub=""):
-    return html.Div([
-        html.Div(label, style={"fontSize": "10px", "color": "#4a6a82",
-                               "textTransform": "uppercase", "letterSpacing": "0.06em"}),
-        html.Div(str(value), style={"fontSize": "22px", "fontWeight": "700",
-                                    "color": "#c8dce8", "lineHeight": "1.2"}),
-        html.Div(sub, style={"fontSize": "10px", "color": "#4a6a82"}),
-    ], style={
-        "background": "#0a1a28", "border": "0.5px solid #1a3040",
-        "borderRadius": "8px", "padding": "10px 16px", "minWidth": "110px",
-    })
-
-
-# ── Dashboard tab layout ──────────────────────────────────────────────────────
-
-def _dashboard_tab():
-    return html.Div([
-        # Health cards
-        dbc.Row([
-            dbc.Col(html.Div(id="card-gateway"), width=4),
-            dbc.Col(html.Div(id="card-model"),   width=4),
-            dbc.Col(html.Div(id="card-discord"), width=4),
-        ], className="g-3 mb-0"),
-
-        # Topology
-        html.Div([
-            html.Div([
-                html.Div("System Topology", className="topology-title", style={"display": "inline-block"}),
-                # Legend
-                html.Div([
-                    html.Span([html.Span(className="legend-dot", style={"background": "#1d9e75"}), "Online / OK"]),
-                    html.Span([html.Span(className="legend-dot", style={"background": "#e06060"}), "Offline / Error"]),
-                    html.Span([html.Span(className="legend-dot", style={"background": "#2a7ab5"}), "Connected"]),
-                    html.Span([html.Span(className="legend-dot", style={"background": "#ef9f27"}), "Pending"]),
-                    html.Span([html.Span(className="legend-dot", style={"background": "#1a3040"}), "Disabled"]),
-                ], className="topology-legend"),
-            ], style={"display": "flex", "justifyContent": "space-between", "alignItems": "center", "marginBottom": "0.5rem"}),
-            cyto.Cytoscape(
-                id="topology",
-                layout={"name": "preset"},
-                style={"width": "100%", "height": "clamp(200px, 20vh, 300px)"},
-                elements=[],
-                stylesheet=[
-                    # All nodes: pill shape, icon + name label inside
-                    {
-                        "selector": "node",
-                        "style": {
-                            "label":                "data(name)",
-                            "text-valign":          "center",
-                            "text-halign":          "center",
-                            "color":                "data(color)",
-                            "font-size":            "10.5px",
-                            "font-weight":          "600",
-                            "text-max-width":       "140px",
-                            "background-color":     "#070f18",
-                            "border-width":         "1.5px",
-                            "border-color":         "data(color)",
-                            "shape":                "round-rectangle",
-                            "width":                "114px",
-                            "height":               "36px",
-                            "shadow-blur":          "16px",
-                            "shadow-color":         "data(color)",
-                            "shadow-opacity":       0.28,
-                            "shadow-offset-x":      "0px",
-                            "shadow-offset-y":      "0px",
-                            "overlay-opacity":      0,
-                        },
-                    },
-                    # Main Agent: slightly larger
-                    {
-                        "selector": "#agent-main",
-                        "style": {
-                            "width":        "122px",
-                            "height":       "40px",
-                            "font-size":    "11px",
-                            "border-width": "2px",
-                        },
-                    },
-                    # Edges
-                    {
-                        "selector": "edge",
-                        "style": {
-                            "label":                    "data(label)",
-                            "font-size":                "9px",
-                            "font-weight":              "500",
-                            "color":                    "#5a8aaa",
-                            "text-background-color":    "#07111c",
-                            "text-background-opacity":  1,
-                            "text-background-padding":  "3px",
-                            "line-color":               "#1e3a52",
-                            "width":                    "1.5px",
-                            "curve-style":              "bezier",
-                            "target-arrow-color":       "#2a5a7a",
-                            "target-arrow-shape":       "triangle",
-                            "arrow-scale":              0.9,
-                            "overlay-opacity":          0,
-                        },
-                    },
-                ],
-            ),
-            html.Div(id="topology-labels"),
-        ], className="topology-panel"),
-
-        html.Div(id="dashboard-stats", className="mt-3"),
-
-    ])
 
 
 # ── Pipeline tab layout ───────────────────────────────────────────────────────
@@ -380,6 +324,17 @@ STAT_FILTERS = [
     ("all", "All"),
 ]
 
+# Source filters — shown as chips on a second row; filter by apply-path category.
+# Note: "Easy Apply" includes true LinkedIn Easy Apply jobs AND jobs where
+# LinkedIn's apply button redirects externally (we can't distinguish without auth).
+SOURCE_FILTERS = [
+    ("source_all",          "All Sources"),
+    ("source_apply_direct", "Direct"),
+    ("source_indeed",       "Indeed"),
+    ("source_linkedin",     "LinkedIn"),
+    ("source_easy_apply",   "Easy Apply"),
+]
+
 # Combined — used by filter callbacks
 FILTERS = ACTION_FILTERS + STAT_FILTERS
 
@@ -387,7 +342,7 @@ FILTERS = ACTION_FILTERS + STAT_FILTERS
 def _pipeline_tab():
     _divider = html.Span(style={
         "display": "inline-block", "width": "1px", "height": "16px",
-        "background": "#1a3040", "verticalAlign": "middle", "margin": "0 8px",
+        "background": "#1a3040", "verticalAlign": "middle", "margin": "0 4px",
     })
 
     _default_filter = "auto_apply"
@@ -397,7 +352,7 @@ def _pipeline_tab():
                                className="filter-count-badge")],
             id={"type": "filter-btn", "index": status},
             size="sm",
-            className="me-1 mb-1 filter-active" if status == _default_filter else "me-1 mb-1",
+            className="filter-active" if status == _default_filter else "",
             color="secondary", outline=True,
         )
         for status, label in ACTION_FILTERS
@@ -414,11 +369,24 @@ def _pipeline_tab():
         )
         for status, label in STAT_FILTERS
     ]
+    _default_source = "source_all"
+    source_chips = [
+        html.Span(
+            [label, " ",
+             html.Span("0", id={"type": "source-count", "index": key},
+                       style={"fontWeight": "600", "color": "#6a8aaa"})],
+            id={"type": "source-btn", "index": key},
+            n_clicks=0,
+            className="stat-chip filter-active" if key == _default_source else "stat-chip",
+            style={"cursor": "pointer"},
+        )
+        for key, label in SOURCE_FILTERS
+    ]
     return html.Div([
         # Pipeline progress banner
         html.Div(id="panel-pipeline-progress", className="mb-2"),
 
-        # Row 1: primary action filters
+        # Row 1: primary action filters + bulk actions
         html.Div([
             *action_btns,
             _divider,
@@ -433,25 +401,24 @@ def _pipeline_tab():
                 html.Span(id="bulk-action-feedback",
                           style={"fontSize": "11px", "color": "#6a8aaa", "marginLeft": "8px"}),
             ], id="bulk-action-bar", style={"display": "none", "alignItems": "center"}),
-        ], style={"display": "flex", "alignItems": "center", "flexWrap": "wrap",
-                  "marginBottom": "6px"}),
+        ], className="filter-toolbar"),
 
-        # Row 2: group filter + refresh
+        # Row 2: source chips (left) + group filter & refresh (right)
         html.Div([
+            *source_chips,
             html.Div(style={"flex": "1"}),
             dcc.Dropdown(
                 id="group-filter-dropdown",
                 options=GROUP_OPTIONS,
                 value="all",
                 clearable=False,
-                style={"width": "190px", "fontSize": "12px"},
+                style={"width": "180px"},
             ),
             dbc.Button("↺", id="btn-refresh-jobs", size="sm",
                        color="secondary", outline=True,
                        title="Reload jobs from disk",
                        style={"fontSize": "13px", "padding": "2px 10px"}),
-        ], style={"display": "flex", "alignItems": "center", "gap": "8px",
-                  "marginBottom": "12px"}),
+        ], className="filter-toolbar", style={"marginBottom": "12px"}),
 
         # Two-column: job list | detail panel
         dbc.Row([
@@ -481,71 +448,9 @@ def _pipeline_tab():
     ])
 
 
-# ── Masterlist tab layout ─────────────────────────────────────────────────────
-
-LIST_META = [
-    ("buy",   "Buy"),
-    ("todo",  "Todo"),
-    ("watch", "Watch"),
-]
-
-
-def _list_column(list_name, label):
-    return dbc.Col([
-        html.Div([
-            html.Div(label, className="info-panel-title"),
-            html.Div(id=f"{list_name}-display", style={
-                "minHeight": "200px", "maxHeight": "400px", "overflowY": "auto",
-                "marginBottom": "12px",
-            }),
-            dbc.Input(
-                id=f"{list_name}-input",
-                placeholder=f"Add to {label}…",
-                size="sm",
-                style={"fontSize": "12px"},
-                className="mb-2",
-            ),
-            dbc.Button("Add", id=f"{list_name}-add-btn",
-                       size="sm", color="primary", outline=True, className="w-100"),
-        ], className="info-panel", style={"height": "100%"}),
-    ], width=4)
-
-
-def _masterlist_tab():
-    return html.Div([
-        dbc.Row(
-            [_list_column(name, label) for name, label in LIST_META],
-            className="g-3",
-        ),
-    ])
-
-
-def _render_items(list_name, items):
-    if not items:
-        return html.Div("Nothing here yet.",
-                        style={"fontSize": "12px", "color": "#3a5a72", "padding": "8px 0"})
-    return html.Div([
-        html.Div([
-            html.Span(item["text"], style={"fontSize": "13px", "color": "#e0ecf4", "flex": "1"}),
-            dbc.Button("✕",
-                       id={"type": "remove-btn", "index": f"{list_name}:{item['id']}"},
-                       size="sm", color="danger", outline=True,
-                       style={"fontSize": "10px", "padding": "1px 6px", "lineHeight": "1"}),
-        ], style={
-            "display": "flex", "alignItems": "center", "justifyContent": "space-between",
-            "padding": "6px 4px", "borderBottom": "0.5px solid #1a3040",
-        })
-        for item in items
-    ])
-
-
 # ── Sidebar nav pages ─────────────────────────────────────────────────────────
 
-PAGES = [
-    ("dashboard",  "Dashboard",    "▣"),
-    ("pipeline",   "Job Pipeline", "◈"),
-    ("masterlist", "Masterlist",   "≡"),
-]
+PAGES = [("dashboard", "Dashboard", "▣")]
 
 
 # ── Fish tank ─────────────────────────────────────────────────────────────────
@@ -642,7 +547,6 @@ app.layout = html.Div([
         # Brand
         html.Div([
             html.Div("JARVIS", className="jarvis-title"),
-            html.Div("OpenClaw", className="jarvis-subtitle"),
         ], className="sidebar-brand"),
 
         # Nav
@@ -651,34 +555,23 @@ app.layout = html.Div([
                 html.Span(icon, className="nav-icon"),
                 html.Span(label),
             ], id={"type": "nav-item", "index": page_id},
-               className="nav-item active" if page_id == "pipeline" else "nav-item",
+               className="nav-item active" if page_id == "dashboard" else "nav-item",
                n_clicks=0)
             for page_id, label, icon in PAGES
         ], className="sidebar-nav"),
-
-        # Footer: status
-        html.Div(id="header-status", className="sidebar-footer"),
     ], className="sidebar"),
 
     # Main content
     html.Div([
-        html.Div(_dashboard_tab(),   id="page-dashboard",  style={"display": "none"}),
-        html.Div(_pipeline_tab(),    id="page-pipeline",   style={"display": "block"}),
-        html.Div(_masterlist_tab(),  id="page-masterlist", style={"display": "none"}),
+        html.Div(_pipeline_tab(), id="page-dashboard", style={"display": "block"}),
 
         # All stores
         dcc.Store(id="selected-job-id",    data=None),
         dcc.Store(id="status-filter",      data="auto_apply"),
         dcc.Store(id="group-filter",       data="all"),
+        dcc.Store(id="source-filter",      data="source_all"),
         dcc.Store(id="job-list-version",   data=0),
-        dcc.Store(id="ats-result",         data=None),
-        dcc.Store(id="cover-letter-text",      data=None),
-        dcc.Store(id="research-data",          data=None),
-        dcc.Store(id="cl-selected-sentence",   data=None),
-        dcc.Store(id="list-refresh-trigger", data=0),
-        dcc.Store(id="list-action",          data=None),
-        dcc.Store(id="remove-item-store",    data=None),
-        dcc.Store(id="active-page",          data="pipeline"),
+        dcc.Store(id="active-page",          data="dashboard"),
         dcc.Store(id="_highlight-sink",      data=None),
         dcc.Store(id="toast-trigger",        data=None),
 
@@ -709,9 +602,7 @@ def navigate(n_clicks):
 
 @callback(
     Output({"type": "nav-item", "index": ALL}, "className"),
-    Output("page-dashboard",  "style"),
-    Output("page-pipeline",   "style"),
-    Output("page-masterlist", "style"),
+    Output("page-dashboard", "style"),
     Input("active-page", "data"),
 )
 def render_nav(active):
@@ -727,85 +618,13 @@ def render_nav(active):
     return nav_classes, *styles
 
 
-# ── Topology elements ─────────────────────────────────────────────────────────
-
-def _build_elements(online, gw, hb):
-    gw_color   = "#1d9e75" if online else "#e06060"
-    disc_color = "#2a7ab5" if gw["discord_enabled"] else "#3a5a72"
-    hb_color   = "#1d9e75" if hb.get("ok") else "#e06060"
-    hb_str     = f"{hb['latency_ms']}ms" if hb.get("latency_ms") is not None else "—"
-
-    return [
-        # Nodes
-        {"data": {"id": "heartbeat",  "name": f"◉  Heartbeat  {hb_str}", "color": hb_color},   "position": {"x": 85,  "y": 120}},
-        {"data": {"id": "gateway",    "name": "⬡  Gateway",               "color": gw_color},   "position": {"x": 260, "y": 120}},
-        {"data": {"id": "agent-main", "name": "◈  Main Agent",            "color": "#2a7ab5"},  "position": {"x": 455, "y": 120}},
-        {"data": {"id": "discord",    "name": "◎  Discord",               "color": disc_color}, "position": {"x": 615, "y": 48}},
-        # Edges
-        {"data": {"source": "heartbeat",  "target": "gateway",    "label": "check"}},
-        {"data": {"source": "gateway",    "target": "agent-main", "label": "API"}},
-        {"data": {"source": "agent-main", "target": "discord",    "label": "notify"}},
-    ]
-
-
-# ── Dashboard callback ────────────────────────────────────────────────────────
+# ── Pipeline panel callback ───────────────────────────────────────────────────
 
 @callback(
-    Output("header-status",           "children"),
-    Output("card-gateway",            "children"),
-    Output("card-model",              "children"),
-    Output("card-discord",            "children"),
-    Output("topology",                "elements"),
-    Output("topology-labels",         "children"),
     Output("panel-pipeline-progress", "children"),
-    Output("dashboard-stats",         "children"),
     Input("tick", "n_intervals"),
 )
-def refresh_dashboard(_n):
-    gw     = get_gateway_info()
-    online = check_gateway_online(gw["port"])
-    hb     = check_gateway_heartbeat(gw["port"])
-
-    # Header
-    dot_cls  = "online" if online else "offline"
-    lbl_cls  = "" if online else "offline"
-    lbl_text = f"Connected · {gw['port']}" if online else "Offline"
-    header_status = html.Span([
-        html.Span(className=f"status-dot {dot_cls}"),
-        html.Span(lbl_text, className=f"status-label {lbl_cls}"),
-    ])
-
-    # Gateway card
-    gw_card = _card(
-        "Gateway",
-        "Online" if online else "Offline",
-        "card-online" if online else "card-offline",
-        [f"port {gw['port']} / {gw['mode']}", f"v{gw['version']}"],
-    )
-
-    # Model card
-    info      = gw["default_model_info"]
-    reasoning = "on" if info.get("reasoning") else "off"
-    host      = gw["ollama_url"].replace("http://", "")
-    ctx_size   = f"{info.get('contextWindow', 0):,}" if info else "?"
-    model_card = _card(
-        "Model", gw["default_model_id"], "card-blue",
-        [f"Ollama / {host}", f"reasoning: {reasoning} · ctx: {ctx_size}"],
-    )
-
-    # Discord card
-    if gw["discord_enabled"]:
-        discord_card = _card("Discord", "Connected", "card-online",
-            [f"{gw['discord_guild_count']} guild", f"allowlist: {gw['discord_allowlist_count']} user"])
-    else:
-        discord_card = _card("Discord", "Off", "card-offline", ["Not configured"])
-
-    # Topology
-    elements = _build_elements(online, gw, hb)
-
-    # Labels rendered inside Cytoscape nodes directly — overlay not needed
-    node_labels = html.Div()
-
+def refresh_pipeline_panel(_n):
     # Pipeline progress banner (compact strip for Pipeline tab)
     prog = _parse_pipeline_progress()
 
@@ -911,38 +730,7 @@ def refresh_dashboard(_n):
         }),
     ])
 
-    # Stats strip
-    apps_data  = _load_apps()
-    today_str  = datetime.utcnow().strftime("%Y-%m-%d")
-    today_jobs = [j for j in apps_data if j.get("scraped_at", "").startswith(today_str)]
-
-    score_dist = " · ".join(
-        f"{s}★:{sum(1 for j in apps_data if j.get('score') == s)}"
-        for s in (7, 8, 9, 10)
-        if any(j.get("score") == s for j in apps_data)
-    ) or "—"
-
-    dashboard_stats = dbc.Row([
-        dbc.Col(_stat_chip(
-            "Auto-Apply Queue",
-            sum(1 for j in apps_data if j.get("status") == "auto_apply"),
-            "pending",
-        ), width="auto"),
-        dbc.Col(_stat_chip(
-            "Applied (All Time)",
-            sum(1 for j in apps_data if j.get("status") == "applied"),
-        ), width="auto"),
-        dbc.Col(_stat_chip(
-            "Today Scraped",
-            len(today_jobs),
-            f"auto {sum(1 for j in today_jobs if j.get('status') == 'auto_apply')} · "
-            f"rej {sum(1 for j in today_jobs if j.get('status') == 'rejected')}",
-        ), width="auto"),
-        dbc.Col(_stat_chip("Score Dist.", score_dist, "across all jobs"), width="auto"),
-    ], className="g-2")
-
-    return (header_status, gw_card, model_card, discord_card,
-            elements, node_labels, pipeline_progress_panel, dashboard_stats)
+    return pipeline_progress_panel
 
 
 # ── Pipeline: group filter ────────────────────────────────────────────────────
@@ -996,15 +784,56 @@ def refresh_filter_counts(_n, ids):
     return [str(counts.get(id_["index"], 0)) for id_ in ids]
 
 
+# ── Pipeline: source filter ───────────────────────────────────────────────────
+
+@callback(
+    Output("source-filter", "data"),
+    Output({"type": "source-btn", "index": ALL}, "className"),
+    Input({"type": "source-btn", "index": ALL}, "n_clicks"),
+    State({"type": "source-btn", "index": ALL}, "id"),
+    State("source-filter", "data"),
+    prevent_initial_call=True,
+)
+def update_source_filter(_n_clicks, ids, current):
+    triggered = ctx.triggered_id
+    active = triggered["index"] if triggered else (current or "source_all")
+    classes = [
+        ("stat-chip filter-active" if id_["index"] == active else "stat-chip")
+        for id_ in ids
+    ]
+    return active, classes
+
+
+@callback(
+    Output({"type": "source-count", "index": ALL}, "children"),
+    Input("tick", "n_intervals"),
+    Input("status-filter", "data"),
+    Input("group-filter", "data"),
+    State({"type": "source-count", "index": ALL}, "id"),
+)
+def refresh_source_counts(_n, status_filter, group_filter, ids):
+    apps = _load_apps()
+    if status_filter and status_filter != "all":
+        apps = [a for a in apps if a.get("status") == status_filter]
+    if group_filter and group_filter != "all":
+        apps = [a for a in apps if a.get("search_group") == group_filter]
+    counts = {"source_all": len(apps)}
+    for a in apps:
+        cat = "source_" + _source_category(a)
+        counts[cat] = counts.get(cat, 0) + 1
+    return [str(counts.get(id_["index"], 0)) for id_ in ids]
+
+
 # ── Pipeline: job list ────────────────────────────────────────────────────────
 
 @callback(
     Output("job-list", "children"),
     Input("status-filter", "data"),
     Input("group-filter", "data"),
+    Input("source-filter", "data"),
     Input("job-list-version", "data"),
 )
-def render_job_list(status_filter, group_filter, _version):
+def render_job_list(status_filter, group_filter, source_filter, _version):
     all_apps = _load_apps()
     apps = all_apps
     if status_filter and status_filter != "all":
@@ -1013,6 +842,11 @@ def render_job_list(status_filter, group_filter, _version):
     # Filter by search group when a specific group is selected
     if group_filter and group_filter != "all":
         apps = [a for a in apps if a.get("search_group") == group_filter]
+
+    # Filter by apply-path source category
+    if source_filter and source_filter != "source_all":
+        target = source_filter.removeprefix("source_")
+        apps = [a for a in apps if _source_category(a) == target]
 
     if status_filter == "auto_apply":
         # Show jobs scraped within the last 3 days
@@ -1051,8 +885,10 @@ def render_job_list(status_filter, group_filter, _version):
         apps = sorted(apps, key=lambda a: a.get("date_posted") or a.get("scraped_at", ""), reverse=True)
 
     if not apps:
-        return html.Div("No jobs in this category.", className="info-key",
-                        style={"fontSize": "12px", "padding": "1rem"})
+        return html.Div([
+            html.Div("○", className="empty-icon"),
+            html.Div("No jobs in this category"),
+        ], className="empty-state")
 
     total = len(apps)
     apps = apps[:200]
@@ -1111,16 +947,8 @@ def render_job_list(status_filter, group_filter, _version):
             ], style={"flex": "1"}),
             html.Span(score_text, className=f"metric-pill {score_cls}",
                       style={"fontSize": "10px", "padding": "2px 7px"}),
-        ], id={"type": "job-item", "index": job_id}, className="job-item", style={
-            "display": "flex", "alignItems": "center", "justifyContent": "space-between",
-            "padding": "10px 12px", "marginBottom": "5px", "cursor": "pointer",
-            "borderRadius": "8px",
-            "background": "rgba(10,26,40,0.4)",
-            "borderTop":    "0.5px solid #1a3040",
-            "borderRight":  "0.5px solid #1a3040",
-            "borderBottom": "0.5px solid #1a3040",
-            "borderLeft":   f"3px solid {color}",
-        }, n_clicks=0))
+        ], id={"type": "job-item", "index": job_id}, className="job-item",
+           style={"borderLeft": f"3px solid {color}"}, n_clicks=0))
 
     if total > 200:
         items.append(html.Div(
@@ -1135,9 +963,6 @@ def render_job_list(status_filter, group_filter, _version):
 
 @callback(
     Output("selected-job-id", "data"),
-    Output("ats-result",       "data"),
-    Output("cover-letter-text","data"),
-    Output("research-data",    "data"),
     Input({"type": "job-item", "index": ALL}, "n_clicks"),
     State("selected-job-id", "data"),
     prevent_initial_call=True,
@@ -1145,11 +970,11 @@ def render_job_list(status_filter, group_filter, _version):
 def select_job(n_clicks, current_id):
     triggered = ctx.triggered_id
     if not triggered or not isinstance(triggered, dict):
-        return no_update, no_update, no_update, no_update
+        return no_update
     new_id = triggered["index"]
     if new_id == current_id:
-        return no_update, no_update, no_update, no_update
-    return new_id, None, None, None
+        return no_update
+    return new_id
 
 
 # ── Pipeline: clientside selection highlight ──────────────────────────────────
@@ -1183,19 +1008,16 @@ clientside_callback(
 
 @callback(
     Output("job-detail", "children"),
-    Input("selected-job-id",   "data"),
-    Input("ats-result",        "data"),
-    Input("cover-letter-text", "data"),
-    Input("research-data",     "data"),
+    Input("selected-job-id", "data"),
 )
-def render_detail(job_id, ats_result, cover_letter, research_data):
+def render_detail(job_id):
     if not job_id:
         return html.Div(
-            html.Div("Select a job to view details.", style={
-                "fontSize": "13px", "color": "#3a5a72",
-            }),
+            html.Div([
+                html.Div("◈", className="empty-icon"),
+                html.Div("Select a job to view details"),
+            ], className="empty-state"),
             className="info-panel",
-            style={"display": "flex", "alignItems": "center", "justifyContent": "center"},
         )
 
     apps = _load_apps()
@@ -1215,6 +1037,30 @@ def render_detail(job_id, ats_result, cover_letter, research_data):
         score_cls = "pill-amber"
 
     # ── Info header (above tabs) ──────────────────────────────────────────────
+    direct_url, agg_url = _apply_urls(job)
+    site = (job.get("site") or "").lower()
+    site_label = {
+        "linkedin": "LinkedIn",
+        "indeed":   "Indeed",
+        "zip_recruiter": "ZipRecruiter",
+        "greenhouse": "Greenhouse",
+        "ashby": "Ashby",
+        "lever": "Lever",
+    }.get(site, "Posting")
+
+    link_row: list = []
+    if direct_url:
+        # Direct ATS link — strongest CTA. Skip the aggregator link to avoid clutter.
+        link_row.append(html.A("Apply Direct →", href=direct_url, target="_blank",
+                               className="metric-pill pill-green",
+                               style={"fontSize": "10px", "textDecoration": "none"}))
+    elif agg_url:
+        # No direct URL — fall back to aggregator (LinkedIn / Indeed posting page).
+        link_row.append(html.A(f"View on {site_label} →", href=agg_url, target="_blank",
+                               className="metric-pill pill-grey",
+                               style={"fontSize": "10px", "textDecoration": "none",
+                                      "color": "#5a8aaa"}))
+
     info_header = html.Div([
         html.Div(job.get("title", "—"), style={
             "fontSize": "16px", "fontWeight": "600", "color": "#e0ecf4", "marginBottom": "4px",
@@ -1225,17 +1071,12 @@ def render_detail(job_id, ats_result, cover_letter, research_data):
             html.Span(score_text, className=f"metric-pill {score_cls}"),
             html.Span(STATUS_LABELS.get(status, status), className="metric-pill",
                       style={"background": f"{color}22", "color": color, "fontSize": "10px"}),
-            html.A("View Job →", href=job.get("job_url", "#"), target="_blank",
-                   style={"fontSize": "11px", "color": "#5a8aaa", "marginLeft": "8px"}),
-        ], className="mb-2"),
+            *link_row,
+        ], className="mb-2", style={"display": "flex", "alignItems": "center",
+                                    "gap": "4px", "flexWrap": "wrap"}),
     ])
 
     # ── Actions (all statuses) ────────────────────────────────────────────────
-    _input_style = {
-        "fontSize": "11px", "background": "rgba(10,26,40,0.4)",
-        "color": "#8ab0cc", "border": "0.5px solid #1a3040", "borderRadius": "6px",
-    }
-    has_eval = bool(job.get("career_ops_report") and Path(job["career_ops_report"]).exists())
     actions = html.Div([
         html.Div([
             dbc.Button("Mark Applied", id="btn-mark-applied", size="sm",
@@ -1244,17 +1085,6 @@ def render_detail(job_id, ats_result, cover_letter, research_data):
             dbc.Button("Skip", id="btn-skip", size="sm",
                        color="secondary", outline=True, className="me-2",
                        disabled=(status == "skipped")),
-            dcc.Loading(dbc.Button("ATS Scan", id="btn-ats-scan", size="sm",
-                       color="secondary", outline=True, className="me-2"),
-                       type="circle", color="#2a7ab5"),
-            dbc.Button(
-                "Full Eval ✓" if has_eval else "Full Eval",
-                id="btn-full-eval", size="sm",
-                color="info" if has_eval else "secondary",
-                outline=True,
-                disabled=not has_eval,
-                title="Run 'evaluate job' in Claude Code to generate" if not has_eval else "Evaluation report available",
-            ),
         ], className="mb-2"),
         html.Div([
             dcc.Dropdown(
@@ -1264,15 +1094,6 @@ def render_detail(job_id, ats_result, cover_letter, research_data):
                 clearable=False,
                 style={"width": "165px", "fontSize": "11px", "flexShrink": "0"},
             ),
-            dbc.Input(
-                id="company-url-input",
-                placeholder="Paste company URL (optional)",
-                size="sm",
-                style={**_input_style, "flex": "1", "minWidth": "0"},
-            ),
-            dcc.Loading(dbc.Button("Research", id="btn-cover-letter", size="sm",
-                       color="secondary", outline=True, style={"flexShrink": "0"}),
-                       type="circle", color="#2a7ab5"),
         ], style={"display": "flex", "alignItems": "center", "gap": "6px", "flexWrap": "wrap"}),
     ], className="mb-3")
 
@@ -1305,213 +1126,10 @@ def render_detail(job_id, ats_result, cover_letter, research_data):
         ], style={"fontSize": "11px", "marginTop": "4px"}) if gaps else "",
     ], style={"marginTop": "4px"})
 
-    # ── Tab: Eval — career-ops evaluation report ──────────────────────────────
-    report_path = job.get("career_ops_report")
-    if report_path and Path(report_path).exists():
-        report_md = Path(report_path).read_text(encoding="utf-8")
-        eval_tab = html.Div([
-            html.Div(
-                f"Report: {Path(report_path).name}",
-                style={"fontSize": "10px", "color": "#4a6a82", "marginBottom": "6px"},
-            ),
-            dcc.Markdown(
-                report_md,
-                style={
-                    "fontSize": "11px", "color": "#8ab0cc", "lineHeight": "1.6",
-                    "maxHeight": "480px", "overflowY": "auto",
-                    "background": "rgba(10,26,40,0.4)", "borderRadius": "8px",
-                    "padding": "0.75rem", "border": "0.5px solid #1a3040",
-                },
-            ),
-            html.Div(
-                f"Tailored resume: {job['tailored_resume']}" if job.get("tailored_resume") else "",
-                style={"fontSize": "10px", "color": "#4a7a5a", "marginTop": "6px"},
-            ),
-        ])
-    else:
-        eval_tab = html.Div([
-            html.Div("No evaluation report yet.", style={"fontSize": "12px", "color": "#4a6a82"}),
-            html.Div(
-                "Run 'evaluate job' in Claude Code to generate a full 7-block analysis, tailored resume PDF, and save the report here.",
-                style={"fontSize": "11px", "color": "#3a5a72", "marginTop": "4px", "lineHeight": "1.5"},
-            ),
-        ], style={"padding": "8px 0"})
-
-    # ── Tab: ATS ──────────────────────────────────────────────────────────────
-    if not ats_result:
-        ats_tab = html.Div("Run ATS Scan to see results.",
-                           style={"fontSize": "12px", "color": "#4a6a82", "padding": "8px 0"})
-    elif "error" in ats_result:
-        ats_tab = html.Div(f"ATS scan error: {ats_result['error']}",
-                           style={"color": "#e06060", "fontSize": "12px"})
-    else:
-        ats_score  = ats_result.get("ats_score", "?")
-        missing    = ats_result.get("missing_keywords", [])
-        present    = ats_result.get("present_keywords", [])
-        wins       = ats_result.get("quick_wins", [])
-        verdict    = ats_result.get("overall_verdict", "")
-        weak       = ats_result.get("weak_bullets", [])
-        skills     = ats_result.get("skills_issues", [])
-
-        score_color = (
-            "#5dcaa5" if isinstance(ats_score, (int, float)) and ats_score >= 70 else
-            "#ef9f27" if isinstance(ats_score, (int, float)) and ats_score >= 50 else
-            "#e06060"
-        )
-        _lbl = lambda t: html.Div(t, style={
-            "fontSize": "11px", "color": "#4a6a82", "marginBottom": "4px", "marginTop": "8px",
-            "textTransform": "uppercase", "letterSpacing": "0.05em",
-        })
-        present_str  = ", ".join(present[:12]) if present else ""
-        missing_items = [
-            html.Li([
-                html.Span(k["keyword"], style={"color": "#c8dce8"}),
-                html.Span(f" · {k.get('importance','?')}", style={"color": "#4a6a82"}),
-                html.Span(f" — {k.get('where_to_add','')}", style={"color": "#6a8a9e", "fontStyle": "italic"}),
-            ], style={"fontSize": "11px", "marginBottom": "3px"})
-            for k in missing[:10]
-        ]
-        bullet_items = []
-        for b in weak[:4]:
-            if not isinstance(b, dict) or "original" not in b:
-                continue
-            bullet_items.append(html.Li([
-                html.Div(f"Before: {b.get('original','')[:100]}", style={"color": "#e06060", "fontSize": "11px"}),
-                html.Div(f"After:  {b.get('rewrite','')[:100]}", style={"color": "#5dcaa5", "fontSize": "11px"}),
-                html.Div(b.get("issue", ""), style={"color": "#6a8a9e", "fontSize": "10px", "fontStyle": "italic"}),
-            ], style={"marginBottom": "6px", "listStyle": "none", "paddingLeft": 0}))
-        skills_items = [
-            html.Li([
-                html.Span(s.get("issue", ""), style={"color": "#ef9f27", "fontSize": "11px"}),
-                html.Span(f" → {s.get('fix','')}", style={"color": "#6a8a9e", "fontSize": "11px"}),
-            ], style={"marginBottom": "3px"})
-            for s in skills[:5]
-        ]
-        win_items = [
-            html.Li(w, style={"fontSize": "11px", "color": "#6a8a9e"}) for w in wins[:5]
-        ]
-        ats_tab = html.Div([
-            html.Div([
-                html.Span("ATS Score: ", className="info-key"),
-                html.Span(f"{ats_score}/100", style={"color": score_color, "fontWeight": "700", "fontSize": "16px"}),
-            ], className="mb-1"),
-            html.Div(verdict, style={"fontSize": "12px", "color": "#8ab0cc", "marginBottom": "6px", "fontStyle": "italic"}),
-            (_lbl("Present") if present_str else ""),
-            html.Div(present_str, style={"fontSize": "11px", "color": "#5dcaa5", "marginBottom": "6px"}) if present_str else "",
-            (_lbl("Missing Keywords") if missing else ""),
-            html.Ul(missing_items, style={"paddingLeft": "16px", "marginBottom": "6px"}) if missing else "",
-            (_lbl("Weak Bullets") if bullet_items else ""),
-            html.Ul(bullet_items, style={"paddingLeft": 0, "marginBottom": "6px"}) if bullet_items else "",
-            (_lbl("Skills Issues") if skills_items else ""),
-            html.Ul(skills_items, style={"paddingLeft": "16px", "marginBottom": "6px"}) if skills_items else "",
-            (_lbl("Quick Wins") if wins else ""),
-            html.Ul(win_items, style={"paddingLeft": "16px"}) if wins else "",
-        ])
-
-    # ── Tab: Research ─────────────────────────────────────────────────────────
-    if not research_data:
-        research_tab = html.Div("Click Research to begin.",
-                                style={"fontSize": "12px", "color": "#4a6a82", "padding": "8px 0"})
-    else:
-        rd = research_data
-        _field_style = {
-            "width": "100%", "fontSize": "11px", "color": "#8ab0cc",
-            "background": "rgba(10,26,40,0.4)", "border": "0.5px solid #1a3040",
-            "borderRadius": "6px", "padding": "0.5rem", "resize": "vertical", "marginBottom": "8px",
-        }
-        _q1_style  = {**_field_style, "border": "0.5px solid #a07830"}
-        _lbl_std   = {"fontSize": "10px", "color": "#6a8a9e", "marginBottom": "3px"}
-        _lbl_q1    = {"fontSize": "10px", "color": "#c89050", "marginBottom": "3px"}
-        research_tab = html.Div([
-            html.Div("Company-specific detail", style=_lbl_q1),
-            dcc.Textarea(id="research-q1", value=rd.get("company_specific_detail", ""),
-                         placeholder="Find one specific thing a lazy applicant wouldn't...",
-                         style={**_q1_style, "height": "60px"}),
-            html.Div("Why this role", style=_lbl_std),
-            dcc.Textarea(id="research-q2", value=rd.get("why_this_role", ""),
-                         style={**_field_style, "height": "48px"}),
-            html.Div("Best matching project", style=_lbl_std),
-            dcc.Textarea(id="research-q3", value=rd.get("best_project", ""),
-                         style={**_field_style, "height": "48px"}),
-            html.Div("Project-specific detail", style=_lbl_std),
-            dcc.Textarea(id="research-q4", value=rd.get("project_detail", ""),
-                         style={**_field_style, "height": "48px"}),
-            html.Div("Matched requirements", style=_lbl_std),
-            dcc.Textarea(id="research-q5", value=rd.get("matched_requirements", ""),
-                         style={**_field_style, "height": "48px"}),
-            html.Div("Take on company's work", style=_lbl_std),
-            dcc.Textarea(id="research-q6", value=rd.get("company_take", ""),
-                         style={**_field_style, "height": "48px"}),
-            dcc.Loading(
-                dbc.Button("Generate Letter", id="btn-generate-letter", size="sm",
-                           color="primary", outline=True),
-                type="circle", color="#2a7ab5",
-            ),
-        ])
-
-    # ── Tab: Letter ───────────────────────────────────────────────────────────
-    if not cover_letter:
-        letter_tab = html.Div("Generate a letter after researching.",
-                              style={"fontSize": "12px", "color": "#4a6a82", "padding": "8px 0"})
-    else:
-        cl_text = cover_letter.get("text", "") if isinstance(cover_letter, dict) else cover_letter
-        cl_path = cover_letter.get("pdf_path") if isinstance(cover_letter, dict) else None
-        sentences = re.split(r'(?<=[.!?])\s+', cl_text.strip()) if cl_text else []
-        sentence_spans = [
-            html.Span(
-                s + (" " if i < len(sentences) - 1 else ""),
-                id={"type": "cl-sentence", "index": i},
-                className="cl-sentence",
-                n_clicks=0,
-            )
-            for i, s in enumerate(sentences)
-        ]
-        letter_tab = html.Div([
-            html.Div(
-                sentence_spans,
-                style={
-                    "fontSize": "12px", "color": "#8ab0cc", "lineHeight": "1.8",
-                    "whiteSpace": "pre-wrap", "background": "rgba(10,26,40,0.4)",
-                    "border": "0.5px solid #1a3040", "borderRadius": "8px",
-                    "padding": "1rem", "maxHeight": "340px", "overflowY": "auto",
-                }
-            ),
-            html.Div("Click a sentence to edit or AI-rewrite it.",
-                     style={"fontSize": "11px", "color": "#4a6a7a", "marginTop": "4px"}),
-            html.Div(id="sentence-edit-panel"),
-            html.Div(f"Saved: {cl_path}",
-                     style={"fontSize": "11px", "color": "#4a7a5a", "marginTop": "6px"}) if cl_path else "",
-        ])
-
-    # ── Auto-advance to most recent tab ───────────────────────────────────────
-    if cover_letter:
-        default_tab = "tab-letter"
-    elif research_data:
-        default_tab = "tab-research"
-    elif ats_result:
-        default_tab = "tab-ats"
-    elif has_eval:
-        default_tab = "tab-eval"
-    else:
-        default_tab = "tab-info"
-
     return html.Div([
         info_header,
         actions,
-        dbc.Tabs([
-            dbc.Tab(info_tab,      label="Info",     tab_id="tab-info",
-                    label_style={"fontSize": "11px"}, className="pt-2"),
-            dbc.Tab(ats_tab,       label="ATS",      tab_id="tab-ats",
-                    label_style={"fontSize": "11px"}, className="pt-2"),
-            dbc.Tab(research_tab,  label="Research", tab_id="tab-research",
-                    label_style={"fontSize": "11px"}, className="pt-2"),
-            dbc.Tab(letter_tab,    label="Letter",   tab_id="tab-letter",
-                    label_style={"fontSize": "11px"}, className="pt-2"),
-            dbc.Tab(eval_tab,      label="Eval ✓" if has_eval else "Eval",
-                    tab_id="tab-eval",
-                    label_style={"fontSize": "11px", "color": "#5dcaa5" if has_eval else "#4a6a82"},
-                    className="pt-2"),
-        ], active_tab=default_tab, className="detail-tabs mt-1"),
+        html.Div(info_tab, className="pt-2"),
     ], className="info-panel")
 
 
@@ -1678,265 +1296,6 @@ def change_status(new_status, job_id, version):
     _save_apps(apps)
     label = STATUS_LABELS.get(new_status, new_status)
     return (version or 0) + 1, {"message": f"Status → {label}", "color": "primary"}
-
-
-# ── Pipeline: ATS scan ────────────────────────────────────────────────────────
-
-@callback(
-    Output("ats-result", "data", allow_duplicate=True),
-    Input("btn-ats-scan",    "n_clicks"),
-    State("selected-job-id", "data"),
-    prevent_initial_call=True,
-)
-def run_ats_scan(n_clicks, job_id):
-    if not n_clicks or not job_id:
-        return no_update
-    apps = _load_apps()
-    job  = next((a for a in apps if a["id"] == job_id), None)
-    if not job:
-        return {"error": "Job not found"}
-    try:
-        from agents.ats_scanner import scan_job
-        return scan_job(job)
-    except Exception as e:
-        return {"error": str(e)}
-
-
-# ── Pipeline: research (step 1) ───────────────────────────────────────────────
-
-@callback(
-    Output("research-data", "data", allow_duplicate=True),
-    Input("btn-cover-letter",   "n_clicks"),
-    State("selected-job-id",    "data"),
-    State("company-url-input",  "value"),
-    prevent_initial_call=True,
-)
-def run_research(n_clicks, job_id, company_url):
-    if not n_clicks or not job_id:
-        return no_update
-    apps = _load_apps()
-    job  = next((a for a in apps if a["id"] == job_id), None)
-    if not job:
-        return {}
-    import os
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-    from lib.resume import load_resume_text
-    ctx = research_company(job, load_resume_text(), api_key, override_url=company_url or "")
-    return ctx.to_dict()
-
-
-# ── Pipeline: generate letter (step 2) ────────────────────────────────────────
-
-@callback(
-    Output("cover-letter-text", "data", allow_duplicate=True),
-    Input("btn-generate-letter", "n_clicks"),
-    State("research-q1",         "value"),
-    State("research-q2",         "value"),
-    State("research-q3",         "value"),
-    State("research-q4",         "value"),
-    State("research-q5",         "value"),
-    State("research-q6",         "value"),
-    State("selected-job-id",     "data"),
-    prevent_initial_call=True,
-)
-def run_generate_letter(n_clicks, q1, q2, q3, q4, q5, q6, job_id):
-    if not n_clicks or not job_id:
-        return no_update
-    apps = _load_apps()
-    job  = next((a for a in apps if a["id"] == job_id), None)
-    if not job:
-        return {"text": "Job not found.", "pdf_path": None}
-    labels = [
-        ("Company-specific detail (use in opening)", q1),
-        ("Why this role specifically",               q2),
-        ("Best matching project from resume",        q3),
-        ("Specific project detail to mention",       q4),
-        ("Requirements candidate clearly has",       q5),
-        ("Genuine take on company's work",           q6),
-    ]
-    research_block = "\n".join(
-        f"{label}: {val}" for label, val in labels if val and val.strip()
-    )
-    try:
-        cfg      = _load_config()
-        text     = generate_cover_letter(job, cfg, research_block=research_block)
-        pdf_path = save_cover_letter_pdf(text, job)
-        return {"text": text, "pdf_path": pdf_path}
-    except Exception as e:
-        return {"text": f"Error generating cover letter: {e}", "pdf_path": None}
-
-
-# ── Cover letter: sentence selection ─────────────────────────────────────────
-
-@callback(
-    Output("cl-selected-sentence", "data"),
-    Input({"type": "cl-sentence", "index": ALL}, "n_clicks"),
-    prevent_initial_call=True,
-)
-def select_sentence(n_clicks_list):
-    if not any(n_clicks_list):
-        return no_update
-    triggered = ctx.triggered_id
-    if triggered and isinstance(triggered, dict):
-        return triggered["index"]
-    return no_update
-
-
-@callback(
-    Output("sentence-edit-panel", "children"),
-    Input("cl-selected-sentence", "data"),
-    State("cover-letter-text", "data"),
-    prevent_initial_call=True,
-)
-def render_sentence_edit(idx, cover_letter):
-    if idx is None or not cover_letter:
-        return []
-    cl_text = cover_letter.get("text", "") if isinstance(cover_letter, dict) else cover_letter
-    import re as _re
-    sentences = _re.split(r'(?<=[.!?])\s+', cl_text.strip())
-    if idx >= len(sentences):
-        return []
-    sentence = sentences[idx]
-    return html.Div([
-        dcc.Textarea(
-            id="sentence-edit-textarea",
-            value=sentence,
-            style={
-                "width": "100%", "minHeight": "70px", "fontSize": "12px",
-                "background": "rgba(10,26,40,0.6)", "color": "#8ab0cc",
-                "border": "0.5px solid #2a5a7a", "borderRadius": "6px",
-                "padding": "8px", "marginTop": "8px", "resize": "vertical",
-            },
-        ),
-        html.Div([
-            dbc.Button("AI Rewrite", id="btn-rewrite-sentence", size="sm",
-                       color="primary", className="me-2 mt-2"),
-            dbc.Button("Save Edit",  id="btn-save-sentence",    size="sm",
-                       color="secondary", className="mt-2"),
-        ]),
-    ], style={"marginTop": "8px"})
-
-
-@callback(
-    Output("cover-letter-text", "data", allow_duplicate=True),
-    Input("btn-rewrite-sentence", "n_clicks"),
-    State("cl-selected-sentence",   "data"),
-    State("sentence-edit-textarea", "value"),
-    State("cover-letter-text",      "data"),
-    State("selected-job-id",        "data"),
-    prevent_initial_call=True,
-)
-def rewrite_sentence_cb(n_clicks, idx, sentence_text, cover_letter, job_id):
-    if not n_clicks or idx is None or not cover_letter or not job_id:
-        return no_update
-    cl_text = cover_letter.get("text", "") if isinstance(cover_letter, dict) else cover_letter
-    import re as _re
-    sentences = _re.split(r'(?<=[.!?])\s+', cl_text.strip())
-    if idx >= len(sentences):
-        return no_update
-    try:
-        import os as _os
-        cfg     = _load_config()
-        api_key = _os.environ.get("ANTHROPIC_API_KEY", "")
-        apps    = _load_apps()
-        job     = next((a for a in apps if a["id"] == job_id), {})
-        new_sentence = rewrite_sentence(sentence_text or sentences[idx], cl_text, job, api_key)
-        sentences[idx] = new_sentence
-        new_text = " ".join(sentences)
-        pdf_path = save_cover_letter_pdf(new_text, job)
-        return {"text": new_text, "pdf_path": pdf_path}
-    except Exception as e:
-        return no_update
-
-
-@callback(
-    Output("cover-letter-text", "data", allow_duplicate=True),
-    Input("btn-save-sentence",      "n_clicks"),
-    State("cl-selected-sentence",   "data"),
-    State("sentence-edit-textarea", "value"),
-    State("cover-letter-text",      "data"),
-    State("selected-job-id",        "data"),
-    prevent_initial_call=True,
-)
-def save_sentence_edit(n_clicks, idx, new_text_val, cover_letter, job_id):
-    if not n_clicks or idx is None or not new_text_val or not cover_letter:
-        return no_update
-    cl_text = cover_letter.get("text", "") if isinstance(cover_letter, dict) else cover_letter
-    import re as _re
-    sentences = _re.split(r'(?<=[.!?])\s+', cl_text.strip())
-    if idx >= len(sentences):
-        return no_update
-    sentences[idx] = new_text_val.strip()
-    new_text = " ".join(sentences)
-    apps = _load_apps()
-    job  = next((a for a in apps if a["id"] == job_id), {}) if job_id else {}
-    pdf_path = save_cover_letter_pdf(new_text, job)
-    return {"text": new_text, "pdf_path": pdf_path}
-
-
-# ── Masterlist: capture ✕ clicks in the browser, write key to store ────────────
-# JS checks !value so n_clicks=0 (spurious Dash 4 re-mount fires) are ignored.
-
-clientside_callback(
-    """
-    function() {
-        var c = window.dash_clientside.callback_context;
-        if (!c.triggered || !c.triggered.length || !c.triggered[0].value)
-            return window.dash_clientside.no_update;
-        var match = c.triggered[0].prop_id.match(/"index":"([^"]+)"/);
-        return match ? match[1] : window.dash_clientside.no_update;
-    }
-    """,
-    Output("remove-item-store", "data"),
-    Input({"type": "remove-btn", "index": ALL}, "n_clicks"),
-    prevent_initial_call=True,
-)
-
-
-# ── Masterlist: single callback — renders, adds, removes ───────────────────────
-
-@callback(
-    Output("buy-display",   "children"),
-    Output("todo-display",  "children"),
-    Output("watch-display", "children"),
-    Output("buy-input",     "value"),
-    Output("todo-input",    "value"),
-    Output("watch-input",   "value"),
-    Input("list-refresh-trigger", "data"),
-    Input("buy-add-btn",    "n_clicks"),
-    Input("todo-add-btn",   "n_clicks"),
-    Input("watch-add-btn",  "n_clicks"),
-    Input("remove-item-store", "data"),
-    State("buy-input",   "value"),
-    State("todo-input",  "value"),
-    State("watch-input", "value"),
-)
-def manage_lists(_trigger, _nb, _nt, _nw, remove_key,
-                 v_buy, v_todo, v_watch):
-    triggered = ctx.triggered_id
-    add_map = {
-        "buy-add-btn":   ("buy",   v_buy),
-        "todo-add-btn":  ("todo",  v_todo),
-        "watch-add-btn": ("watch", v_watch),
-    }
-    if triggered in add_map:
-        list_name, text = add_map[triggered]
-        if text and text.strip():
-            add_item(list_name, text)
-    elif triggered == "remove-item-store" and remove_key and ":" in remove_key:
-        list_name, item_id = remove_key.split(":", 1)
-        remove_item(list_name, item_id)
-
-    data = load_lists()
-    b, t, w = data.get("buy", []), data.get("todo", []), data.get("watch", [])
-    return (
-        _render_items("buy",   b),
-        _render_items("todo",  t),
-        _render_items("watch", w),
-        "" if triggered == "buy-add-btn"   else (v_buy   or ""),
-        "" if triggered == "todo-add-btn"  else (v_todo  or ""),
-        "" if triggered == "watch-add-btn" else (v_watch or ""),
-    )
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────

@@ -148,10 +148,3 @@ cv:
   markdown: cv.md                          # primary source — always read this first
   latex: profile/resume.tex               # original LaTeX source
   cover_letter_style: "profile/aidan-cover-letter-prompt (1).md"
-
-# ── OpenClaw pipeline ─────────────────────────────────────────────────────────
-openclaw:
-  dashboard: http://localhost:8050
-  applications_db: data/applications.json
-  cover_letters_dir: data/cover_letters
-  resumes_dir: data/resumes

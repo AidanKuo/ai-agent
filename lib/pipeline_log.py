@@ -16,7 +16,7 @@ BASE_DIR     = Path(__file__).parent.parent
 PIPELINE_MD  = BASE_DIR / "data" / "pipeline.md"
 
 _HEADER = """\
-# OpenClaw Pipeline Log
+# Pipeline Log
 
 Appended by scraper and portal scanner on each run.
 Each row is a job that entered `data/applications.json` for scoring.
