@@ -11,6 +11,13 @@
 - Analytics Engineer
 - Data Analytics Associate
 
+### Primary — GIS / Geospatial
+- GIS Analyst
+- Geospatial Analyst
+- Spatial Data Analyst
+- GIS Technician
+- Geographic Data Analyst
+
 ### Secondary — Actuary path
 - Actuarial Analyst
 - Actuarial Assistant
@@ -72,12 +79,13 @@
 - Tech startups (Series A or later) are a plus
 - Mid-size tech companies (50–1000 employees) are a plus
 - Large enterprises are fine if the role is data-specific or actuary-adjacent
-- No preference is a hard filter — evaluate every company on the role itself
+- Company type is not a hard filter — evaluate every company on the role itself
 
 ## Keywords that signal a GOOD fit
 Python, SQL, data analysis, pandas, Power BI, Tableau, ETL, data pipeline,
 business intelligence, machine learning, Streamlit, API, PostgreSQL, analytics,
-visualization, dashboards, reporting, data quality, ArcGIS, geospatial,
+visualization, dashboards, reporting, data quality, ArcGIS, GIS, geospatial,
+spatial data, mapping, location intelligence, remote sensing, QGIS, PostGIS,
 actuarial, insurance, risk, underwriting, pricing, loss ratio, reserving,
 R, SAS, Excel modeling, statistical analysis, probability, financial modeling,
 entry level, new grad, junior, associate, early career,
@@ -88,8 +96,14 @@ SAP, Oracle ERP, Salesforce admin, 5+ years required, senior only,
 manual QA testing, no coding mentioned, no coding, Excel-only with no other tools,
 requires MBA, requires PhD, requires CPA, director-level, manager-level,
 10+ years, principal, staff engineer, architect-level, II,
+Sr., Sr , Tech Lead, Team Lead, Engineering Lead, Lead Analyst, Lead Engineer,
+Lead Developer, Lead Data, Vice President, VP,
 3+ years of experience, 3+ years experience, minimum 3 years, at least 3 years,
-4+ years, 4 years of experience, 6+ years, 7+ years, 8+ years
+3 years of experience, requires 3 years, 3-5 years, 3 to 5 years,
+4+ years, 4 years of experience, requires 4 years, 4-6 years,
+5 years of experience, requires 5 years, 5-7 years, 5-10 years,
+6+ years, 6 years of experience, 7+ years, 7 years of experience,
+8+ years, 8 years of experience, 7-10 years, 10 years of experience
 
 ## Role signals that are a plus
 - Mentions Python or SQL as primary tools
@@ -102,9 +116,3 @@ requires MBA, requires PhD, requires CPA, director-level, manager-level,
 - Offers mentorship, training program, or rotational program
 - Lists "new grad" or "early career" in the posting
 - Healthcare or insurance industry
-
-## Scoring and application rules
-- Fit score 8–10: auto-apply immediately
-- Fit score 7: send to Discord for manual review before applying
-- Fit score below 7: skip silently
-- No daily application limit — apply to everything that scores 8+

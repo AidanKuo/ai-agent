@@ -54,9 +54,11 @@ def load_resume_text() -> str:
 
 
 def load_preferences_text() -> str:
+    # Cap generously — preferences.md is ~5KB and the good/bad keyword
+    # sections near the end MUST reach the LLM (they drive hard rejects).
     if not PREFS.exists():
         return ""
-    return PREFS.read_text(encoding="utf-8")[:2000]
+    return PREFS.read_text(encoding="utf-8")[:8000]
 
 
 def load_applications() -> list[dict]:
@@ -216,7 +218,7 @@ if __name__ == "__main__":
     results = run_scorer()
 
     print(f"\n{'='*50}")
-    print(f"SCORING SUMMARY")
+    print("SCORING SUMMARY")
     print(f"{'='*50}")
 
     if results["auto"]:

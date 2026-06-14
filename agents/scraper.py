@@ -1,7 +1,7 @@
 import concurrent.futures
 import json
 import logging
-import os
+import re
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -97,17 +97,72 @@ def make_job_id(job: pd.Series) -> str:
     return str(uuid.uuid5(uuid.NAMESPACE_URL, raw))
 
 
+# Multiple patterns for "≥3 years required" — any match means hard-no.
+# Lookbehind (?<!\d-) prevents matching ranges like "1-3 years" (junior is OK).
+_YEARS_REQUIRED_PATTERNS = [
+    # "3+ years", "5+ yrs"
+    re.compile(r"\b([3-9]|1\d|2\d)\+\s*(?:years?|yrs?)", re.IGNORECASE),
+    # "minimum / at least / requires 3 years"
+    re.compile(r"\b(?:minimum|at\s+least|require[ds]?)\s+([3-9]|1\d|2\d)\s*\+?\s*(?:years?|yrs?)", re.IGNORECASE),
+    # "3 years of professional/industry/relevant/work/hands-on experience"
+    re.compile(r"(?<!\d-)(?<!\d\s-\s)\b([3-9]|1\d|2\d)\s*(?:years?|yrs?)\s+of\s+"
+               r"(?:professional|industry|relevant|hands-?on|work|prior|direct)\s+(?:experience|exp)\b", re.IGNORECASE),
+    # "3 years of experience" (no qualifying adjective)
+    re.compile(r"(?<!\d-)(?<!\d\s-\s)\b([3-9]|1\d|2\d)\s*(?:years?|yrs?)\s+of\s+(?:experience|exp)\b", re.IGNORECASE),
+    # "7 yrs experience" / "5 years experience" (no "of")
+    re.compile(r"(?<!\d-)(?<!\d\s-\s)\b([3-9]|1\d|2\d)\s*(?:years?|yrs?)'?\s+(?:experience|exp)\b", re.IGNORECASE),
+    # "3-5 years", "5–7 years" — ranges starting at ≥3
+    re.compile(r"\b([3-9]|1\d|2\d)\s*[-–]\s*\d+\s*(?:years?|yrs?)", re.IGNORECASE),
+    # "3 to 5 years"
+    re.compile(r"\b([3-9]|1\d|2\d)\s+to\s+\d+\s*(?:years?|yrs?)", re.IGNORECASE),
+]
+
+
+def _years_required_match(text: str):
+    """Return the first regex match indicating ≥3 years required, or None."""
+    for pat in _YEARS_REQUIRED_PATTERNS:
+        if m := pat.search(text):
+            return m
+    return None
+
+# Seniority words that should be hard-no in TITLES (word-boundary matched).
+_SENIOR_TITLE_TERMS = [
+    r"\bsenior\b", r"\bsr\.?\b", r"\blead\b", r"\bprincipal\b", r"\bstaff\b",
+    r"\barchitect\b", r"\bdirector\b", r"\bmanager\b", r"\bvp\b",
+    r"\bvice\s+president\b", r"\bhead\s+of\b",
+    r"\b(II|III|IV)\b",  # Roman numerals indicate seniority levels
+]
+_SENIOR_TITLE_PATTERN = re.compile("|".join(_SENIOR_TITLE_TERMS), re.IGNORECASE)
+
+
 def is_hard_no(job: pd.Series, prefs: dict) -> bool:
-    """Return True if any bad keyword appears in title or description."""
+    """Return True if job should be filtered out before scoring.
+
+    Three checks, in order:
+      1. Senior-level title (word-boundary regex on title only)
+      2. JD requires 3+ years of experience (regex on full text)
+      3. Literal bad keyword match from preferences.md
+    """
     title = str(job.get("title", "")).lower()
     text  = (title + " " + str(job.get("description", ""))).lower()
+
+    # 1. Title seniority filter — must match TITLE, not description
+    if m := _SENIOR_TITLE_PATTERN.search(title):
+        log.info(f"  Filtered (senior title '{m.group(0)}'): {job.get('title')} @ {job.get('company')}")
+        return True
+
+    # 2. Years-of-experience filter — anywhere in JD
+    if m := _years_required_match(text):
+        log.info(f"  Filtered (years required '{m.group(0)}'): {job.get('title')} @ {job.get('company')}")
+        return True
+
+    # 3. Literal bad keyword match
     for kw in prefs["bad_keywords"]:
         if not kw:
             continue
         # Short all-alpha keywords (e.g. "ii") matched against title only
         # using word boundaries to avoid false positives in long descriptions.
         if len(kw) <= 3 and kw.isalpha():
-            import re
             if re.search(rf"\b{re.escape(kw)}\b", title):
                 log.info(f"  Filtered (bad keyword '{kw}'): {job.get('title')} @ {job.get('company')}")
                 return True

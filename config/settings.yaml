@@ -1,3 +1,7 @@
+# Pipeline configuration — machine-readable settings consumed by Python code.
+# For LLM-facing job preferences (target roles, good/bad keywords, hard NOs),
+# see profile/preferences.md.
+
 # Model configuration
 model:
   provider: ollama
